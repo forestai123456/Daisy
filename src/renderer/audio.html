@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>diri audio capture</title>
+</head>
+<body>
+  <script>
+    if (typeof window.diriAPI === 'undefined') {
+      try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.send('renderer:error', 'AUDIO_HTML: diriAPI is undefined! preload may have failed');
+      } catch(e) {
+        document.title = 'ERROR: ' + e.message;
+      }
+    } else {
+      window.diriAPI.sendRendererError('AUDIO_HTML: diriAPI is available, loading audio.js');
+    }
+  </script>
+  <script>
+    window.addEventListener('error', function(e) {
+      if (window.diriAPI) {
+        window.diriAPI.sendRendererError('AUDIO_LOAD_ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+      }
+    });
+  </script>
+  <script src="audio.js"></script>
+</body>
+</html>

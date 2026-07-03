@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>diri</title>
+  <script>
+    window.addEventListener('error', function(e) {
+      if (window.diriAPI) window.diriAPI.sendRendererError('FLOAT_LOAD: ' + e.message + ' ' + (e.filename||'') + ':' + (e.lineno||''));
+    });
+  </script>
+  <script type="module" src="./assets/float-4r0utq7N.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

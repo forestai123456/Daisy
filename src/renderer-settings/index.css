@@ -1,0 +1,948 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ================================================================
+   液态玻璃全局配置 (Liquid Glass Styling)
+   ================================================================ */
+
+:root {
+  --glass-radius: 24px;
+  --glass-radius-sm: 14px;
+  --glass-radius-pill: 999px;
+  --accent-blue: #0ea5e9;
+  --accent-red: #ff3a55;
+  --text-dark: #1e2530;
+  --text-muted: #5e6b7e;
+  --text-dim: #90a0b5;
+}
+
+/* 页面背景 - 干净、极具实体质感的微渐变浅色背景 */
+.settings-body {
+  background: #F5F5F5;
+  color: var(--text-dark);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  position: relative;
+  min-height: 100vh;
+}
+
+.settings-body::before {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 40px;
+  z-index: 9999;
+  -webkit-app-region: drag;
+  pointer-events: none;
+}
+
+/* 背景中的发光氛围色块 - 已在纯白烟色背景下隐藏 */
+.bg-ambient-glow {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(130px);
+  opacity: 0.42;
+  mix-blend-mode: multiply;
+  animation: floatOrb 25s infinite alternate ease-in-out;
+}
+
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(110, 123, 255, 0.4) 0%, rgba(110, 123, 255, 0) 70%);
+  top: -10%;
+  left: -5%;
+  animation-duration: 20s;
+}
+
+.orb-2 {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(255, 94, 58, 0.3) 0%, rgba(255, 94, 58, 0) 70%);
+  bottom: -15%;
+  right: -5%;
+  animation-duration: 28s;
+}
+
+.orb-3 {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.25) 0%, rgba(52, 211, 153, 0) 70%);
+  top: 40%;
+  left: 35%;
+  animation-duration: 24s;
+}
+
+@keyframes floatOrb {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(50px, 40px) scale(1.15); }
+}
+
+/* ================================================================
+   超真实液态玻璃面板核心类 (.liquid-glass)
+   ================================================================ */
+.liquid-glass {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--glass-radius);
+  
+  /* 极其清澈通透的无雾基底 - 降低白色遮盖，提升背景彩色穿透率 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.24) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+
+  /* 折射与高饱和，降低模糊度以消除“毛玻璃”的毛糙感，得到如同清澈积水的流体物理效果 */
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+
+  /* 边缘高亮描边 */
+  border: 1px solid rgba(255, 255, 255, 0.85);
+
+  box-shadow:
+    /* 顶边缘超亮切光 (Sharp Specular Edge) */
+    inset 0 1.5px 0.5px rgba(255, 255, 255, 1),
+    /* 晶莹饱满的顶层厚度反光 */
+    inset 0 8px 18px -4px rgba(255, 255, 255, 0.45),
+    /* 圆滑下沿饱满反光带 */
+    inset 0 -2px 0.5px rgba(255, 255, 255, 0.85),
+    /* 底部通透内折射，彻底融合没有分层线 */
+    inset 0 -10px 24px -6px rgba(255, 255, 255, 0.25),
+    /* 侧翼弧形亮边 */
+    inset 3px 0 12px -5px rgba(255, 255, 255, 0.35),
+    inset -3px 0 12px -5px rgba(255, 255, 255, 0.3),
+    /* 极高拟物的实体轻盈阴影 */
+    0 4px 10px rgba(26, 35, 50, 0.015),
+    0 16px 36px -4px rgba(26, 35, 50, 0.03),
+    0 36px 72px -12px rgba(26, 35, 50, 0.05);
+
+  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 顶部抛光面镜面高光 */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 55%;
+  border-radius: inherit;
+  background:
+    radial-gradient(80% 100% at 20% 0%, rgba(255,255,255,0.48) 0%, transparent 60%),
+    radial-gradient(80% 100% at 80% 0%, rgba(255,255,255,0.40) 0%, transparent 60%),
+    linear-gradient(to bottom, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.08) 50%, transparent 100%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.95;
+}
+
+/* 精致抛光倒角切片描边 - 利用 mask 实现精密 1px 渐变彩色描边 */
+.liquid-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.45) 30%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(255, 255, 255, 0.4) 75%,
+    rgba(210, 220, 240, 0.8) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.liquid-glass > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Hover状态增强 */
+.liquid-glass-interactive:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 1.5px 0.5px rgba(255, 255, 255, 1),
+    inset 0 8px 18px -4px rgba(255, 255, 255, 0.85),
+    inset 0 -2.5px 0.5px rgba(255, 255, 255, 0.95),
+    inset 0 -8px 22px -4px rgba(100, 115, 145, 0.12),
+    0 6px 10px rgba(26, 35, 50, 0.02),
+    0 24px 48px -6px rgba(26, 35, 50, 0.08),
+    0 44px 88px -10px rgba(26, 35, 50, 0.09);
+}
+
+/* ================================================================
+   3D 拟物液态玻璃导航项 (.nav-item-3d)
+   - 极其通透、高反射、圆润饱满的整块 3D 物理玻璃切面
+   - 模拟真实 135° 阳光直射：左上角极亮耀斑，右下角弱反射，两侧清澈通透
+   - 彻底消除自发光霓虹感，采用真实的物理中性阴影
+   ================================================================ */
+.nav-item-3d {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-radius: 999px; /* 完美的药丸/胶囊状 */
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+
+  /* 高度透明的无雾玻璃基底 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.06) 60%,
+    rgba(255, 255, 255, 0.02) 100
+  );
+  backdrop-filter: blur(14px) saturate(155%);
+  -webkit-backdrop-filter: blur(14px) saturate(155%);
+
+  /* 物理 3D 仰视角折射：保留顶边微弱反射，强化下沿切光与底部饱满厚度折射 */
+  box-shadow:
+    /* 顶边缘仅保留轻微的漫反射 (Subtle Top Diffuse Glint) */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.35),
+    /* 仰视角可见的饱满下沿倒角切光 (Sharp Bottom Specular Edge) */
+    inset 0 -1.5px 0px rgba(255, 255, 255, 0.60),
+    /* 强光穿透下沿的底部厚度物理折射 (Bottom Lip Thickness Refraction) */
+    inset 0 -4px 10px rgba(255, 255, 255, 0.22),
+    /* 真实的非自发光物理阴影 - 贴合仰视角略微下移 */
+    0 2px 6px rgba(15, 23, 42, 0.02),
+    0 8px 16px -4px rgba(15, 23, 42, 0.04);
+}
+
+
+
+/* 玻璃侧翼精细斜切面刻画 - 顶部亮，底部暗 */
+.nav-item-3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.59) 0%,
+    rgba(255, 255, 255, 0.21) 35%,
+    rgba(255, 255, 255, 0) 65%,
+    rgba(215, 220, 232, 0.3) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.nav-item-3d:hover {
+  color: var(--text-dark);
+  transform: translateY(-2px);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.32) 0%,
+    rgba(255, 255, 255, 0.10) 100%
+  );
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.40),
+    inset 0 -2px 0px rgba(255, 255, 255, 0.68),
+    inset 0 -6px 12px rgba(255, 255, 255, 0.28),
+    0 4px 10px rgba(15, 23, 42, 0.03),
+    0 12px 24px -4px rgba(15, 23, 42, 0.06);
+}
+
+.nav-item-3d:active {
+  transform: translateY(0.5px) scale(0.98);
+}
+
+/* 激活态：高通透温润 3D 橙色玻璃键 (Translucent Sunlit Orange 3D Glass) */
+.nav-item-3d.active {
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 128, 51, 0.90) 0%,     /* 晶莹热带橙 (Tropical Orange #FF8033) */
+    rgba(255, 128, 51, 0.60) 50%,    /* 中间温和热带橙 */
+    rgba(255, 128, 51, 0.22) 100%    /* 右下角高度通透热带橙 */
+  );
+  text-shadow: 0 1px 1.5px rgba(150, 40, 0, 0.28);
+  box-shadow:
+    /* 顶边缘轻微漫反射 */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.45),
+    /* 仰视角极其亮丽的下沿切光 (Blinding Bottom Specular Edge) */
+    inset 0 -2px 0px rgba(255, 255, 255, 0.75),
+    /* 饱满剔透的底部内腔橙光折射厚度托 (Rich Bottom Lip Caustics) */
+    inset 0 -8px 14px rgba(255, 255, 255, 0.48),
+    /* 侧翼温润透光 */
+    inset 2px 0px 6px -2px rgba(255, 255, 255, 0.25),
+    inset -2px 0px 6px -2px rgba(255, 255, 255, 0.2),
+    /* 物理投影加深，带微弱橙色环境透射光 */
+    0 3px 8px rgba(15, 23, 42, 0.06),
+    0 12px 24px -4px rgba(255, 128, 51, 0.18);
+}
+
+
+
+.nav-item-3d.active::after {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.59) 0%,
+    rgba(255, 255, 255, 0.21) 45%,
+    rgba(255, 255, 255, 0) 65%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+}
+
+/* ================================================================
+   玻璃按钮体系 (Glass Buttons)
+   ================================================================ */
+
+/* 1. 经典纯透亮玻璃按钮 (.btn-glass-clear) */
+.btn-glass-clear {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(255, 255, 255, 0.55) 100%
+  );
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.63);
+  color: var(--text-dark);
+  font-weight: 500;
+  font-size: 13px;
+  box-shadow:
+    /* 顶层轻微压边 */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.45),
+    /* 极其高亮饱满的底部边缘厚度切光 (Bottom Specular Bevel) */
+    inset 0 -2px 0.5px rgba(255, 255, 255, 0.72),
+    /* 底部向上晕染的厚度折射 */
+    inset 0 -6px 12px -2px rgba(255, 255, 255, 0.35),
+    /* 真实中性投影 */
+    0 2px 4px rgba(30, 40, 60, 0.03),
+    0 8px 18px -4px rgba(30, 40, 60, 0.06);
+  transition: all 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+
+.btn-glass-clear::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.66), rgba(255,255,255,0.14) 60%, rgba(215,220,232,0.42));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.btn-glass-clear:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.72) 100%
+  );
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.55),
+    inset 0 -2.5px 0.5px rgba(255, 255, 255, 0.85),
+    inset 0 -8px 16px -2px rgba(255, 255, 255, 0.42),
+    0 4px 8px rgba(30, 40, 60, 0.04),
+    0 12px 24px -4px rgba(30, 40, 60, 0.09);
+}
+
+.btn-glass-clear:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+/* 2. 气泡亮蓝高透玻璃按钮 (.btn-glass-blue) - 已换为清澈天蓝色 */
+.btn-glass-blue {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 162, 255, 0.85) 0%,     /* 晶莹天蓝色，高饱和高通透 */
+    rgba(56, 189, 248, 0.50) 50%,    /* 中间温和淡蓝 */
+    rgba(125, 211, 252, 0.20) 100%   /* 边缘水色折射 */
+  );
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 13px;
+  text-shadow: 0 1px 1.5px rgba(2, 60, 120, 0.15);
+  box-shadow:
+    /* 顶边缘微弱切光 */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.42),
+    /* 仰视视角下的晶莹下沿厚度切光 (Bottom Specular Bevel Cut) */
+    inset 0 -2px 0px rgba(255, 255, 255, 0.72),
+    /* 饱满耀眼的蓝色底部腔体折射 (Rich Blue Bottom Caustics) */
+    inset 0 -8px 14px rgba(255, 255, 255, 0.45),
+    /* 侧面圆润反光 */
+    inset 2px 0px 6px -3px rgba(255, 255, 255, 0.25),
+    inset -2px 0px 6px -3px rgba(255, 255, 255, 0.2),
+    /* 真实的物理中性阴影 */
+    0 2px 5px rgba(15, 23, 42, 0.04),
+    0 10px 20px -4px rgba(15, 23, 42, 0.06);
+  transition: all 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+
+.btn-glass-blue::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg, 
+    rgba(255,255,255,0.59) 0%, 
+    rgba(255,255,255,0.14) 40%, 
+    rgba(255,255,255,0) 65%,
+    rgba(255,255,255,0.17) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.btn-glass-blue:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(
+    135deg,
+    rgba(0, 162, 255, 0.92) 0%,
+    rgba(56, 189, 248, 0.62) 50%,
+    rgba(125, 211, 252, 0.30) 100%
+  );
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.50),
+    inset 0 -2.5px 0px rgba(255, 255, 255, 0.85),
+    inset 0 -10px 18px rgba(255, 255, 255, 0.52),
+    0 4px 8px rgba(15, 23, 42, 0.05),
+    0 14px 28px -4px rgba(15, 23, 42, 0.08);
+}
+
+.btn-glass-blue:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+/* 3. 蜜桃轻红高透玻璃按钮 (.btn-glass-red) */
+.btn-glass-red {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 40, 80, 0.82) 0%,     /* 增加透明度 */
+    rgba(255, 65, 100, 0.48) 50%,
+    rgba(255, 105, 130, 0.18) 100%
+  );
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 13px;
+  text-shadow: 0 1px 1.5px rgba(120, 0, 20, 0.15);
+  box-shadow:
+    /* 顶边缘微弱切光 */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.42),
+    /* 仰视视角下的晶莹下沿厚度切光 (Bottom Specular Bevel Cut) */
+    inset 0 -2px 0px rgba(255, 255, 255, 0.72),
+    /* 饱满耀眼的红色底部腔体折射 (Rich Red Bottom Caustics) */
+    inset 0 -8px 14px rgba(255, 255, 255, 0.45),
+    /* 侧面圆润反光 */
+    inset 2px 0px 6px -3px rgba(255, 255, 255, 0.25),
+    inset -2px 0px 6px -3px rgba(255, 255, 255, 0.2),
+    /* 真实的物理中性阴影 */
+    2px 4px 10px rgba(15, 23, 42, 0.04),
+    4px 10px 20px -4px rgba(15, 23, 42, 0.06);
+  transition: all 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+
+.btn-glass-red::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg, 
+    rgba(255,255,255,0.59) 0%, 
+    rgba(255,255,255,0.14) 40%, 
+    rgba(255,255,255,0) 65%,
+    rgba(255,255,255,0.17) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.btn-glass-red:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 40, 80, 0.88) 0%,
+    rgba(255, 65, 100, 0.56) 50%,
+    rgba(255, 105, 130, 0.24) 100%
+  );
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.50),
+    inset 0 -2.5px 0px rgba(255, 255, 255, 0.85),
+    inset 0 -10px 18px rgba(255, 255, 255, 0.52),
+    3px 6px 14px rgba(15, 23, 42, 0.05),
+    6px 14px 28px -4px rgba(15, 23, 42, 0.08);
+}
+
+.btn-glass-red:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+/* 4. 薄荷嫩绿高透玻璃按钮 (.btn-glass-green) */
+.btn-glass-green {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(
+    135deg,
+    rgba(15, 200, 130, 0.82) 0%,     /* 增加透明度 */
+    rgba(25, 210, 145, 0.48) 50%,
+    rgba(55, 235, 180, 0.18) 100%
+  );
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 13px;
+  text-shadow: 0 1px 1.5px rgba(0, 80, 50, 0.15);
+  box-shadow:
+    /* 顶边缘微弱切光 */
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.42),
+    /* 仰视视角下的晶莹下沿厚度切光 (Bottom Specular Bevel Cut) */
+    inset 0 -2px 0px rgba(255, 255, 255, 0.72),
+    /* 饱满耀眼的绿色底部腔体折射 (Rich Green Bottom Caustics) */
+    inset 0 -8px 14px rgba(255, 255, 255, 0.45),
+    /* 侧面圆润反光 */
+    inset 2px 0px 6px -3px rgba(255, 255, 255, 0.25),
+    inset -2px 0px 6px -3px rgba(255, 255, 255, 0.2),
+    /* 真实的物理中性阴影 */
+    2px 4px 10px rgba(15, 23, 42, 0.04),
+    4px 10px 20px -4px rgba(15, 23, 42, 0.06);
+  transition: all 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+
+.btn-glass-green::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg, 
+    rgba(255,255,255,0.59) 0%, 
+    rgba(255,255,255,0.14) 40%, 
+    rgba(255,255,255,0) 65%,
+    rgba(255,255,255,0.17) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.btn-glass-green:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(
+    135deg,
+    rgba(15, 200, 130, 0.88) 0%,
+    rgba(25, 210, 145, 0.56) 50%,
+    rgba(55, 235, 180, 0.24) 100%
+  );
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.50),
+    inset 0 -2.5px 0px rgba(255, 255, 255, 0.85),
+    inset 0 -10px 18px rgba(255, 255, 255, 0.52),
+    3px 6px 14px rgba(15, 23, 42, 0.05),
+    6px 14px 28px -4px rgba(15, 23, 42, 0.08);
+}
+
+.btn-glass-green:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+
+/* ================================================================
+   玻璃输入控件体系 (Glass Controls)
+   ================================================================ */
+
+/* 深邃凹陷式玻璃输入框 (Sunken Glass Inputs) */
+.glass-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--glass-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: linear-gradient(
+    180deg,
+    rgba(240, 244, 248, 0.7) 0%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  color: var(--text-dark);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: all 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    inset 0 1.5px 3px rgba(80, 95, 120, 0.1),
+    inset 0 -1px 0.5px rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(255,255,255,0.4);
+}
+
+.glass-input:focus {
+  border-color: rgba(0, 118, 255, 0.45);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.82) 100%
+  );
+  box-shadow:
+    inset 0 1.5px 3px rgba(80, 95, 120, 0.06),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.95),
+    0 0 0 3.5px rgba(0, 118, 255, 0.1),
+    0 4px 12px rgba(0, 118, 255, 0.05);
+}
+
+/* 玻璃触觉单选框与下拉选框 (.glass-select) */
+.glass-select {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--glass-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  color: var(--text-dark);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: all 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 1),
+    inset 0 -1.5px 2px -1px rgba(80, 95, 120, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.01),
+    0 4px 10px -2px rgba(0, 0, 0, 0.02);
+}
+
+.glass-select:focus {
+  border-color: rgba(0, 118, 255, 0.45);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(255, 255, 255, 0.78) 100%
+  );
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,1),
+    0 0 0 3.5px rgba(0, 118, 255, 0.1),
+    0 4px 12px rgba(0, 118, 255, 0.05);
+}
+
+.select-container {
+  position: relative;
+}
+
+.select-container::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 6px;
+  background-color: var(--text-muted);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* ================================================================
+   触手可及的拟物玻璃滑动条 (Specular Slider)
+   ================================================================ */
+.glass-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: var(--glass-radius-pill);
+  background: linear-gradient(180deg, rgba(144, 160, 181, 0.18) 0%, rgba(144, 160, 181, 0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1.5px 3px rgba(80, 95, 120, 0.12),
+    0 1px 1px rgba(255, 255, 255, 0.6);
+  outline: none;
+  cursor: pointer;
+}
+
+/* 滑动块 - 极亮晶莹玻璃球 */
+.glass-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, rgba(255,255,255,0.7) 40%, rgba(230,235,245,0.3) 100%),
+              linear-gradient(180deg, #ffffff 0%, #dbe3f0 100%);
+  border: 1.5px solid rgba(255, 255, 255, 1);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 1),
+    inset 0 -2px 4px rgba(100, 115, 145, 0.15),
+    0 2px 4px rgba(26, 35, 50, 0.05),
+    0 6px 14px rgba(26, 35, 50, 0.1);
+  cursor: grab;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms;
+}
+
+.glass-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 1),
+    0 3px 6px rgba(26, 35, 50, 0.08),
+    0 8px 18px rgba(26, 35, 50, 0.12);
+}
+
+.glass-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+/* ================================================================
+   超水润双色开关 (Fluid Switch)
+   ================================================================ */
+.glass-switch-container {
+  position: relative;
+  display: inline-block;
+  width: 56px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.glass-switch-container input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.glass-switch-track {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  border-radius: var(--glass-radius-pill);
+  background: linear-gradient(180deg, rgba(144, 160, 181, 0.15) 0%, rgba(144, 160, 181, 0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 2px 4px rgba(80, 95, 120, 0.15),
+    0 1px 1px rgba(255, 255, 255, 0.5);
+  transition: all 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 轨道内的微弱色彩流动感 */
+.glass-switch-track::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #3df2b7 0%, #15d691 100%);
+  opacity: 0;
+  transition: opacity 350ms ease;
+  z-index: 0;
+  box-shadow: inset 0 2px 4px rgba(10, 100, 70, 0.2);
+}
+
+/* 开关圆扣 - 晶莹水珠 */
+.glass-switch-thumb {
+  position: absolute;
+  height: 24px;
+  width: 24px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, rgba(255,255,255,0.85) 45%, rgba(240,245,255,0.4) 100%),
+              linear-gradient(180deg, #ffffff 0%, #eef3fb 100%);
+  border: 1px solid rgba(255, 255, 255, 1);
+  box-shadow:
+    inset 0 1.5px 2px rgba(255,255,255,1),
+    inset 0 -1.5px 2px rgba(100, 115, 145, 0.1),
+    0 2px 4px rgba(30, 40, 60, 0.12);
+  transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 300ms;
+  z-index: 1;
+}
+
+.glass-switch-container input:checked + .glass-switch-track::before {
+  opacity: 1;
+}
+
+.glass-switch-container input:checked + .glass-switch-track .glass-switch-thumb {
+  transform: translateX(24px);
+  box-shadow:
+    inset 0 1.5px 2px rgba(255,255,255,1),
+    0 2px 6px rgba(15, 180, 120, 0.2);
+}
+
+/* ================================================================
+   玻璃只读胶囊与徽标 (Readonly Pill & Indicators)
+   ================================================================ */
+.glass-readonly-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border-radius: var(--glass-radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dark);
+  box-shadow:
+    inset 0 1.2px 0.5px rgba(255,255,255,1),
+    inset 0 -1.5px 0.5px rgba(255, 255, 255, 0.8),
+    inset 0 -3px 6px -2px rgba(255, 255, 255, 0.45),
+    0 2px 4px rgba(30, 40, 60, 0.02),
+    0 6px 12px rgba(30, 40, 60, 0.04);
+}
+
+/* 呼吸绿/红发光指示点 (Glow Indicators) */
+.glass-indicator-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.7);
+  transition: all 400ms ease;
+  position: relative;
+}
+
+.glass-indicator-dot.ok {
+  background: radial-gradient(circle at 35% 35%, #9fffcf 0%, #29cf8e 60%, #17ad72 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.7),
+    0 0 8px rgba(41, 207, 142, 0.55),
+    0 0 14px rgba(41, 207, 142, 0.25);
+  animation: breatheDotGreen 3s infinite alternate ease-in-out;
+}
+
+.glass-indicator-dot.warn {
+  background: radial-gradient(circle at 35% 35%, #ffd1db 0%, #ff3b61 60%, #d61c3e 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.7),
+    0 0 8px rgba(255, 59, 97, 0.55),
+    0 0 14px rgba(255, 59, 97, 0.25);
+  animation: breatheDotRed 3s infinite alternate ease-in-out;
+}
+
+@keyframes breatheDotGreen {
+  0% { box-shadow: inset 0 1px 1px rgba(255,255,255,0.7), 0 0 6px rgba(41, 207, 142, 0.4), 0 0 10px rgba(41, 207, 142, 0.15); }
+  100% { box-shadow: inset 0 1px 1px rgba(255,255,255,0.7), 0 0 10px rgba(41, 207, 142, 0.7), 0 0 18px rgba(41, 207, 142, 0.35); }
+}
+
+@keyframes breatheDotRed {
+  0% { box-shadow: inset 0 1px 1px rgba(255,255,255,0.7), 0 0 6px rgba(255, 59, 97, 0.4), 0 0 10px rgba(255, 59, 97, 0.15); }
+  100% { box-shadow: inset 0 1px 1px rgba(255,255,255,0.7), 0 0 10px rgba(255, 59, 97, 0.7), 0 0 18px rgba(255, 59, 97, 0.35); }
+}
+
+/* ================================================================
+   动画与其它细节 (Animations & Utilities)
+   ================================================================ */
+.glass-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.glass-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass-scroll::-webkit-scrollbar-thumb {
+  background: rgba(144, 160, 181, 0.22);
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 160, 181, 0.35);
+}
+
+/* 页面切换动画 */
+.section-fade-enter {
+  opacity: 0;
+  transform: translateY(12px) scale(0.985);
+}
+
+.section-fade-enter-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 350ms cubic-bezier(0.16, 1, 0.3, 1), transform 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 慢速旋转 */
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+/* 均衡器柱状音波动画 */
+@keyframes equalizer {
+  0% {
+    transform: scaleY(0.3);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+
