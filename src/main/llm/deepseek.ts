@@ -24,7 +24,15 @@ const SILENT_ACTION_TOOLS = new Set([
   "read_selected_text",
   "get_frontmost_application",
   "search_notes",
-  "get_calendar_events"
+  "get_calendar_events",
+  "switch_audio_output",
+  "trim_video",
+  "convert_video",
+  "convert_document",
+  "edit_document",
+  "edit_pdf",
+  "scrape_url",
+  "get_clipboard_text",
 ]);
 
 const INSPECTION_TOOLS = new Set([
@@ -33,12 +41,30 @@ const INSPECTION_TOOLS = new Set([
   "read_selected_text",
   "get_frontmost_application",
   "search_notes",
-  "get_calendar_events"
+  "get_calendar_events",
+  "convert_document",
+  "scrape_url",
+  "get_clipboard_text",
 ]);
+
+const MAX_CALLS_PER_TOOL = 8;
+
+const CONTINUE_AFTER_TOOLS = new Set([
+  "edit_document",
+  "write_file",
+  "create_file",
+  "convert_document",
+  "edit_pdf"
+]);
+
+function maxCallsForTool(name: string): number {
+  return CONTINUE_AFTER_TOOLS.has(name) ? 20 : MAX_CALLS_PER_TOOL;
+}
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  reasoning_content?: string;
   name?: string;
   tool_call_id?: string;
   tool_calls?: Array<{
@@ -51,13 +77,21 @@ export interface ChatMessage {
   }>;
 }
 
-interface DualChannel {
+export interface DualChannel {
   speech: string;
   display: string;
 }
 
-function stripMarkdown(text: string): string {
+/**
+ * 统一的 TTS 文本清洗函数。
+ * 去除 Markdown 符号、emoji、特殊字符，替换为 TTS 可朗读的形式。
+ * 所有进入 TTS 的文本必须经过此函数清洗。
+ */
+export function cleanTextForTTS(text: string): string {
   return text
+    .replace(/<display>[\s\S]*?<\/display>/gi, "")
+    .replace(/<\/?display>/gi, "")
+    .replace(/<\/?speech>/gi, "")
     .replace(/\{"display"\s*:\s*"?/g, "")
     .replace(/"speech"\s*:\s*"?/g, "")
     .replace(/"\s*\}/g, "")
@@ -73,30 +107,25 @@ function stripMarkdown(text: string): string {
     .replace(/^[-*+]\s+/gm, "")
     .replace(/^\d+\.\s+/gm, "")
     .replace(/^\s*>\s?/gm, "")
-    .replace(/[*#_~|]/g, "")
-    .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
+    .replace(/[*#_|]/g, "") // Keep ~
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{2702}\u{2705}\u{2708}-\u{270F}\u{2764}\u{2763}\u{00A9}\u{00AE}\u{2122}\u{200D}\u{FE0F}]/gu, "")
     .replace(/℃/g, "度")
     .replace(/°C/g, "度")
     .replace(/°/g, "度")
-    .replace(/~/g, "到")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
 
+/**
+ * 协议解析器 —— 极速单通道模式：
+ * display 为大模型输出的原始文本（可含 Markdown）
+ * speech 为自动经过 cleanTextForTTS 过滤清洗后的纯文本，用于合成语音
+ */
 function parseDualChannel(text: string): DualChannel {
-  const trimmed = text.trim();
-  const jsonMatch = trimmed.match(/\{[\s\S]*?"display"[\s\S]*?"speech"[\s\S]*?\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (typeof parsed.display === "string" && typeof parsed.speech === "string") {
-        return { display: parsed.display, speech: parsed.speech };
-      }
-    } catch {
-      // fall through
-    }
-  }
-  return { display: text, speech: stripMarkdown(text) };
+  // 兼容性清洗：防范历史遗留会话里可能带有的标签，进行剥离
+  const display = text.replace(/<display>[\s\S]*?<\/display>/gi, "").replace(/<\/?display>/gi, "").replace(/<\/?speech>/gi, "").trim() || text;
+  const speech = cleanTextForTTS(text);
+  return { display, speech };
 }
 
 export class DeepSeekClient extends EventEmitter {
@@ -106,6 +135,9 @@ export class DeepSeekClient extends EventEmitter {
   private conversation: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private aborted = false;
+  private toolCallCounts = new Map<string, number>();
+  private chatLoopCount = 0;
+  private commandExecutionCounts = new Map<string, number>();
 
   constructor(existingMessages?: ChatMessage[]) {
     super();
@@ -130,14 +162,12 @@ export class DeepSeekClient extends EventEmitter {
     this.removeAllListeners();
   }
 
+
+
   async sendMessage(text: string): Promise<void> {
-    if (!this.apiKey) {
-      this.emit("error", "缺少 DeepSeek API Key");
-      return;
-    }
-
-    this.conversation.push({ role: "user", content: text });
-
+    this.aborted = false;
+    this.chatLoopCount = 0;
+    this.commandExecutionCounts.clear();
     try {
       await this.streamChat(this.conversation);
     } catch (error) {
@@ -147,6 +177,22 @@ export class DeepSeekClient extends EventEmitter {
   }
 
   private async streamChat(messages: ChatMessage[]): Promise<void> {
+    if (this.aborted) {
+      log(`DeepSeekClient: streamChat called but client is aborted. Exiting.`);
+      return;
+    }
+    this.chatLoopCount++;
+    if (this.chatLoopCount > 100) {
+      log(`DeepSeekClient: Absolute safety guard triggered (count=${this.chatLoopCount}). Forcing break.`);
+      this.emit("error", "任务执行步骤过多（已达100步），已自动中止以防死循环。");
+      return;
+    }
+    const allowedTools = availableTools.filter(
+      t => (this.toolCallCounts.get(t.function.name) || 0) < maxCallsForTool(t.function.name)
+    );
+    if (allowedTools.length === 0) {
+      log(`DeepSeekClient: all tools reached max calls, forcing final answer`);
+    }
     this.abortController = new AbortController();
     const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: "POST",
@@ -158,9 +204,16 @@ export class DeepSeekClient extends EventEmitter {
         model: this.model,
         messages,
         stream: true,
-        max_tokens: 1024,
-        tools: availableTools,
-        tool_choice: "auto",
+        max_tokens: 8192,
+        tools: allowedTools.length > 0 ? allowedTools : undefined,
+        tool_choice: allowedTools.length > 0 ? "auto" : "none",
+        thinking: {
+          type: config.llm.thinkingEnabled ? "enabled" : "disabled"
+        },
+        ...(config.llm.thinkingEnabled ? {
+          reasoning_effort: config.llm.reasoningEffort,
+          reasoningeffort: config.llm.reasoningEffort
+        } : {})
       }),
       signal: this.abortController.signal,
     });
@@ -179,6 +232,7 @@ export class DeepSeekClient extends EventEmitter {
 
     let buffer = "";
     let assistantContent = "";
+    let assistantReasoningContent = "";
     const toolCalls: ToolCall[] = [];
     let toolAckEmitted = false;
 
@@ -205,6 +259,10 @@ export class DeepSeekClient extends EventEmitter {
 
           if (delta.content) {
             assistantContent += delta.content;
+          }
+
+          if (delta.reasoning_content) {
+            assistantReasoningContent += delta.reasoning_content;
           }
 
           if (delta.tool_calls) {
@@ -247,6 +305,7 @@ export class DeepSeekClient extends EventEmitter {
         this.conversation.push({
           role: "assistant",
           content: assistantContent || "",
+          reasoning_content: assistantReasoningContent || undefined,
           tool_calls: toolCalls.map((tc) => ({
             id: tc.id,
             type: "function" as const,
@@ -262,7 +321,7 @@ export class DeepSeekClient extends EventEmitter {
           tool_call_id: r.tool_call_id,
         })));
 
-        const failed = toolResults.some(r => 
+        const failed = toolResults.some(r =>
           /无法|失败|错误|Error|Failed|not found|does not|invalid|cannot|could not/i.test(r.content)
         );
 
@@ -274,8 +333,9 @@ export class DeepSeekClient extends EventEmitter {
         }
 
         const hasInspection = toolCalls.some(tc => INSPECTION_TOOLS.has(tc.function.name));
-        if (hasInspection) {
-          log(`DeepSeekClient: Silent tools contain inspection tools. Continuing chat loop to let LLM process results...`);
+        const hasContinueAfter = toolCalls.some(tc => CONTINUE_AFTER_TOOLS.has(tc.function.name));
+        if (hasInspection || hasContinueAfter) {
+          log(`DeepSeekClient: Silent tools need follow-up (inspection/continue-after). Continuing chat loop to let LLM verify and continue...`);
           toolAckEmitted = false;
           await this.streamChat(this.conversation);
           return;
@@ -295,6 +355,7 @@ export class DeepSeekClient extends EventEmitter {
       this.conversation.push({
         role: "assistant",
         content: assistantContent || "",
+        reasoning_content: assistantReasoningContent || undefined,
         tool_calls: toolCalls.map((tc) => ({
           id: tc.id,
           type: "function" as const,
@@ -319,8 +380,14 @@ export class DeepSeekClient extends EventEmitter {
     const parsed = parseDualChannel(assistantContent);
     log(`LLM raw response: ${assistantContent}`);
     log(`LLM speech text: ${parsed.speech}`);
-    this.conversation.push({ role: "assistant", content: parsed.display });
-    this.emit("done", parsed.speech);
+    this.conversation.push({
+      role: "assistant",
+      content: parsed.display,
+      reasoning_content: assistantReasoningContent || undefined
+    });
+
+
+    this.emit("done", parsed);
   }
 
   private async executeToolCalls(toolCalls: ToolCall[]): Promise<ToolResult[]> {
@@ -328,7 +395,21 @@ export class DeepSeekClient extends EventEmitter {
     const results: ToolResult[] = [];
 
     for (const tc of toolCalls) {
-      const result = await executeTool(tc.function.name, tc.function.arguments);
+      let result: string;
+      const signature = `${tc.function.name}:${tc.function.arguments.trim()}`;
+      const currentCount = this.commandExecutionCounts.get(signature) || 0;
+      const isWhiteListed = ["capture_screen", "get_current_time"].includes(tc.function.name);
+
+      if (!isWhiteListed && currentCount >= 7) {
+        log(`[LOOP_PREVENT] Command repeated too many times (count=${currentCount}): ${signature}. Intercepting.`);
+        result = `Error: You have already executed this exact command [${tc.function.name}] with these arguments ${currentCount} times in this turn. Repeating it further will yield the identical result. Please stop repeating, try a different approach, or report failure to the user.`;
+      } else {
+        if (!isWhiteListed) {
+          this.commandExecutionCounts.set(signature, currentCount + 1);
+        }
+        result = await executeTool(tc.function.name, tc.function.arguments);
+      }
+      this.toolCallCounts.set(tc.function.name, (this.toolCallCounts.get(tc.function.name) || 0) + 1);
       results.push({
         tool_call_id: tc.id,
         role: "tool",

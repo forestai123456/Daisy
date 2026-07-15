@@ -8,8 +8,11 @@ export class GlobalShortcut extends EventEmitter {
   private pressedKeys = new Set<string>();
   private isRecording = false;
   private releaseDebounceTimer: NodeJS.Timeout | null = null;
-  private readonly RELEASE_DEBOUNCE_MS = 150;
+  private readonly RELEASE_DEBOUNCE_MS = 50;
   private captureMode = false;
+  private capturePressedKeys = new Set<string>();
+  private captureKeysInOrder: string[] = [];
+  private pressedTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
@@ -21,10 +24,14 @@ export class GlobalShortcut extends EventEmitter {
   startCapture(): void {
     this.captureMode = true;
     this.pressedKeys.clear();
+    this.capturePressedKeys.clear();
+    this.captureKeysInOrder = [];
   }
 
   stopCapture(): void {
     this.captureMode = false;
+    this.capturePressedKeys.clear();
+    this.captureKeysInOrder = [];
   }
 
   private keyNameToDisplayName(key: string): string {
@@ -94,7 +101,6 @@ export class GlobalShortcut extends EventEmitter {
 
   private normalizeEmittedKey(name: string): string {
     const standard = (name || "").toLowerCase().replace(/\s+/g, "");
-    // node-global-key-listener emits standard names like "LEFT ALT", "RIGHT ALT"
     if (standard === "leftalt") return "leftalt";
     if (standard === "rightalt") return "rightalt";
     if (standard === "leftcommand" || standard === "leftmeta") return "leftmeta";
@@ -106,8 +112,8 @@ export class GlobalShortcut extends EventEmitter {
     return standard;
   }
 
-  private matchesTargetShortcut(): boolean {
-    return this.targetKeys.every((k) => {
+  private matchesShortcut(targetKeys: string[]): boolean {
+    return targetKeys.length > 0 && targetKeys.every((k) => {
       const target = this.normalizeKey(k);
       if (target === "alt") {
         return this.pressedKeys.has("leftalt") || this.pressedKeys.has("rightalt");
@@ -125,8 +131,19 @@ export class GlobalShortcut extends EventEmitter {
     });
   }
 
-  private isTargetKey(key: string): boolean {
-    return this.targetKeys.some((k) => this.normalizeKey(k) === key);
+  private matchesTargetShortcut(): boolean {
+    return this.matchesShortcut(this.targetKeys);
+  }
+
+  private shortcutContainsKey(targetKeys: string[], key: string): boolean {
+    return targetKeys.some((k) => {
+      const target = this.normalizeKey(k);
+      if (target === "alt") return key === "leftalt" || key === "rightalt";
+      if (target === "meta") return key === "leftmeta" || key === "rightmeta";
+      if (target === "control") return key === "leftcontrol" || key === "rightcontrol";
+      if (target === "shift") return key === "leftshift" || key === "rightshift";
+      return target === key;
+    });
   }
 
   private setup(): void {
@@ -136,28 +153,50 @@ export class GlobalShortcut extends EventEmitter {
 
       if (this.captureMode) {
         if (event.state === "DOWN") {
-          const displayName = this.keyNameToDisplayName(key);
-          this.captureMode = false;
-          this.emit("captured", displayName);
+          if (!this.capturePressedKeys.has(key)) {
+            this.capturePressedKeys.add(key);
+            this.captureKeysInOrder.push(key);
+          }
+        } else if (event.state === "UP") {
+          this.capturePressedKeys.delete(key);
+          if (this.capturePressedKeys.size === 0 && this.captureKeysInOrder.length > 0) {
+            const displayName = this.captureKeysInOrder
+              .map((capturedKey) => this.keyNameToDisplayName(capturedKey))
+              .join("+");
+            this.captureMode = false;
+            this.captureKeysInOrder = [];
+            this.emit("captured", displayName);
+          }
         }
         return;
       }
 
       if (event.state === "DOWN") {
-        // Cancel any pending release (key bounce: user held key, phantom UP, then real DOWN)
         if (this.releaseDebounceTimer) {
           clearTimeout(this.releaseDebounceTimer);
           this.releaseDebounceTimer = null;
         }
         this.pressedKeys.add(key);
+
+        if (key !== "rightalt" && this.pressedTimer) {
+          clearTimeout(this.pressedTimer);
+          this.pressedTimer = null;
+        }
+
         if (this.matchesTargetShortcut() && !this.isRecording) {
-          this.isRecording = true;
-          this.emit("pressed");
+          if (this.pressedTimer) clearTimeout(this.pressedTimer);
+          this.pressedTimer = setTimeout(() => {
+            this.pressedTimer = null;
+            this.isRecording = true;
+            this.emit("pressed");
+          }, 20);
         }
       } else if (event.state === "UP") {
-        if (this.isTargetKey(key) && this.isRecording) {
-          // Debounce the release to filter out key bounce.
-          // If the key comes back down within RELEASE_DEBOUNCE_MS, cancel the release.
+        if (this.shortcutContainsKey(this.targetKeys, key) && this.pressedTimer) {
+          clearTimeout(this.pressedTimer);
+          this.pressedTimer = null;
+        }
+        if (this.shortcutContainsKey(this.targetKeys, key) && this.isRecording) {
           this.releaseDebounceTimer = setTimeout(() => {
             this.isRecording = false;
             this.pressedKeys.clear();
@@ -176,6 +215,14 @@ export class GlobalShortcut extends EventEmitter {
   }
 
   updateShortcut(shortcut: string): void {
+    if (this.pressedTimer) {
+      clearTimeout(this.pressedTimer);
+      this.pressedTimer = null;
+    }
+    if (this.releaseDebounceTimer) {
+      clearTimeout(this.releaseDebounceTimer);
+      this.releaseDebounceTimer = null;
+    }
     this.targetKeys = this.parseShortcut(shortcut);
     this.pressedKeys.clear();
     this.isRecording = false;

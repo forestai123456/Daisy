@@ -28,8 +28,6 @@ const LEAGUE_MAP: Record<string, { id: string; name: string }> = {
   "primeira liga": { id: "4344", name: "葡超" },
   "土超": { id: "4339", name: "土超" },
   "super lig": { id: "4339", name: "土超" },
-  "希腊超": { id: "4346", name: "希腊超" },
-  "super league greece": { id: "4346", name: "希腊超" },
   "美职联": { id: "4346", name: "美职联" },
   "mls": { id: "4346", name: "美职联" },
   "巴甲": { id: "4351", name: "巴甲" },

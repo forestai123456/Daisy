@@ -16,14 +16,19 @@ export const IdleOrb: React.FC = () => {
     let time = 0;
 
     const palette = {
-      main: "#5B9EF5",
-      mid: "#184594",
-      dark: "#0a1738",
-      deepDark: "#02071a",
-      highlight: "#B8DBFF",
-      glow: "rgba(91, 158, 245, 0.45)",
-      filaments: ["#06B6D4", "#EC4899", "#10B981"],
-      blobs: ["#5B9EF5", "#06B6D4", "#a855f7"]
+      main: "#6C6EF5",
+      mid: "#30268a",
+      dark: "#140c38",
+      deepDark: "#0d0728",
+      highlight: "#C5C1FF",
+      glow: "rgba(108, 110, 245, 0.45)",
+      filaments: ["#6C6EF5", "#EC4899", "#8B5CF6"],
+      blobs: ["#6C6EF5", "#8B5CF6", "#EC4899"],
+      linearGradient: {
+        topLeft: "rgba(108, 110, 245, 0.85)",
+        middle: "rgba(139, 92, 246, 0.50)",
+        bottomRight: "rgba(236, 72, 153, 0.20)"
+      }
     };
 
     const targetConfig = { speed: 0.35, spread: 0.46, pulse: 0.04, rotation: 0.06 };
@@ -40,50 +45,28 @@ export const IdleOrb: React.FC = () => {
       };
     }
 
-    const rgbBlobs = palette.blobs.map(hexToRgb);
     const rgbFilaments = palette.filaments.map(hexToRgb);
 
     function drawSphereBase(cx: number, cy: number, radius: number) {
-      const baseGrad = ctx!.createRadialGradient(
-        cx - radius * 0.2, cy - radius * 0.25, radius * 0.05,
-        cx + radius * 0.05, cy + radius * 0.05, radius * 1.10
+      // 铺垫一层纯白底座，保证半透明色彩呈现极致通透
+      ctx!.fillStyle = "#ffffff";
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx!.fill();
+
+      // 创建线性渐变
+      const baseGrad = ctx!.createLinearGradient(
+        cx - radius, cy - radius,
+        cx + radius, cy + radius
       );
-      baseGrad.addColorStop(0, palette.mid);
-      baseGrad.addColorStop(0.3, palette.dark);
-      baseGrad.addColorStop(0.8, palette.deepDark);
-      baseGrad.addColorStop(1, palette.deepDark);
+      baseGrad.addColorStop(0, palette.linearGradient.topLeft);
+      baseGrad.addColorStop(0.5, palette.linearGradient.middle);
+      baseGrad.addColorStop(1, palette.linearGradient.bottomRight);
+
       ctx!.fillStyle = baseGrad;
-      ctx!.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
-    }
-
-    function drawBackgroundBlobs(cx: number, cy: number, radius: number) {
-      ctx!.save();
-      ctx!.translate(cx, cy);
-      ctx!.rotate(globalRotationAngle * 0.6);
-      ctx!.translate(-cx, -cy);
-      ctx!.globalCompositeOperation = "screen";
-
-      for (let i = 0; i < rgbBlobs.length; i++) {
-        const phase = i * 1.6;
-        const blobTime = gaseousTime * (0.35 + i * 0.03) + phase;
-        const pathX = Math.sin(blobTime * 1.1) * radius * targetConfig.spread * (0.65 + 0.2 * Math.cos(blobTime * 0.5));
-        const pathY = Math.cos(blobTime * 0.85) * radius * targetConfig.spread * 0.8 * (0.65 + 0.2 * Math.sin(blobTime * 0.9));
-        const bx = cx + pathX;
-        const by = cy + pathY;
-        const br = radius * (0.75 + 0.15 * Math.sin(blobTime * 0.4));
-        const alpha = 0.26;
-        const blobGrad = ctx!.createRadialGradient(bx, by, 0, bx, by, br);
-        const rgb = rgbBlobs[i];
-        blobGrad.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`);
-        blobGrad.addColorStop(0.55, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha * 0.3})`);
-        blobGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-        ctx!.fillStyle = blobGrad;
-        ctx!.beginPath();
-        ctx!.arc(bx, by, br, 0, Math.PI * 2);
-        ctx!.fill();
-      }
-      ctx!.restore();
-      ctx!.globalCompositeOperation = "source-over";
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx!.fill();
     }
 
     function drawNeonFilaments(cx: number, cy: number, radius: number) {
@@ -102,7 +85,8 @@ export const IdleOrb: React.FC = () => {
           const points = 72; // Optimized for 40px dimensions
           for (let j = 0; j <= points; j++) {
             const angle = (j / points) * Math.PI * 2;
-            let wave1, wave2;
+            let wave1 = 0;
+            let wave2 = 0;
             if (i === 0) {
               wave1 = Math.sin(angle * 3.0 + speedFactor * 1.3) * 1.2;
               wave2 = Math.cos(angle * 2.0 - speedFactor * 0.7) * 0.8;
@@ -129,7 +113,7 @@ export const IdleOrb: React.FC = () => {
 
         // Outer soft glow
         drawPath();
-        ctx!.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.16)`;
+        ctx!.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
         ctx!.lineWidth = 3.5;
         ctx!.lineCap = "round";
         ctx!.lineJoin = "round";
@@ -137,7 +121,7 @@ export const IdleOrb: React.FC = () => {
 
         // Inner filament core
         drawPath();
-        const centerAlpha = 0.68;
+        const centerAlpha = 0.62;
         ctx!.strokeStyle = `rgba(${Math.floor(lerp(rgb.r, 255, 0.45))}, ${Math.floor(lerp(rgb.g, 255, 0.45))}, ${Math.floor(lerp(rgb.b, 255, 0.45))}, ${centerAlpha})`;
         ctx!.lineWidth = 0.75;
         ctx!.stroke();
@@ -145,31 +129,32 @@ export const IdleOrb: React.FC = () => {
       ctx!.restore();
     }
 
-    function drawInnerShadow(cx: number, cy: number, radius: number) {
+    function drawInnerShadow(cx: number, cy: number, radius: number, isDark: boolean) {
       const innerShadow = ctx!.createRadialGradient(
-        cx + radius * 0.05, cy + radius * 0.08, radius * 0.7,
+        cx + radius * 0.05, cy + radius * 0.08, radius * 0.75,
         cx + radius * 0.08, cy + radius * 0.12, radius * 1.05
       );
       innerShadow.addColorStop(0, "rgba(0, 0, 0, 0)");
-      innerShadow.addColorStop(0.75, "rgba(0, 0, 0, 0)");
-      innerShadow.addColorStop(0.9, "rgba(0, 0, 0, 0.15)");
-      innerShadow.addColorStop(1, "rgba(0, 0, 0, 0.45)");
+      innerShadow.addColorStop(0.8, "rgba(0, 0, 0, 0)");
+      innerShadow.addColorStop(0.92, isDark ? "rgba(0, 0, 0, 0.04)" : "rgba(0, 0, 0, 0.01)");
+      innerShadow.addColorStop(1, isDark ? "rgba(0, 0, 0, 0.12)" : "rgba(0, 0, 0, 0.04)");
       ctx!.fillStyle = innerShadow;
       ctx!.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
     }
 
+    // 绘制玻璃壁物理边缘折射厚度环
     function drawGlassWallRefraction(cx: number, cy: number, radius: number) {
       ctx!.save();
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius - 0.5, 0, Math.PI * 2);
-      ctx!.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx!.strokeStyle = "rgba(255, 255, 255, 0.15)";
       ctx!.lineWidth = 1.0;
       ctx!.stroke();
 
-      const wallGrad = ctx!.createRadialGradient(cx, cy, radius * 0.92, cx, cy, radius);
+      const wallGrad = ctx!.createRadialGradient(cx, cy, radius * 0.93, cx, cy, radius);
       wallGrad.addColorStop(0, "rgba(255, 255, 255, 0)");
-      wallGrad.addColorStop(0.88, "rgba(255, 255, 255, 0.03)");
-      wallGrad.addColorStop(1, "rgba(255, 255, 255, 0.14)");
+      wallGrad.addColorStop(0.85, "rgba(255, 255, 255, 0.02)");
+      wallGrad.addColorStop(1, "rgba(255, 255, 255, 0.12)");
       ctx!.fillStyle = wallGrad;
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -178,60 +163,16 @@ export const IdleOrb: React.FC = () => {
     }
 
     function drawGlassHighlights(cx: number, cy: number, radius: number) {
-      const bounceRgb = hexToRgb(palette.main);
-      const bounceX = cx + radius * 0.3;
-      const bounceY = cy + radius * 0.35;
-      const bounceRad = radius * 0.65;
-      const bounceGrad = ctx!.createRadialGradient(bounceX, bounceY, 0, bounceX, bounceY, bounceRad);
-      bounceGrad.addColorStop(0, `rgba(${bounceRgb.r}, ${bounceRgb.g}, ${bounceRgb.b}, 0.28)`);
-      bounceGrad.addColorStop(0.45, `rgba(${bounceRgb.r}, ${bounceRgb.g}, ${bounceRgb.b}, 0.08)`);
-      bounceGrad.addColorStop(0.85, "rgba(255, 255, 255, 0.02)");
-      bounceGrad.addColorStop(1, "rgba(0,0,0,0)");
-
-      ctx!.save();
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx!.clip();
-      ctx!.fillStyle = bounceGrad;
-      ctx!.beginPath();
-      ctx!.arc(bounceX, bounceY, bounceRad, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.restore();
-
-      ctx!.save();
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx!.clip();
-
-      const hl1X = cx - radius * 0.25;
-      const hl1Y = cy - radius * 0.32;
-      const hl1RadX = radius * 0.35;
-      const hlGrad1 = ctx!.createRadialGradient(hl1X - radius * 0.05, hl1Y - radius * 0.05, 0, hl1X, hl1Y, hl1RadX);
-      hlGrad1.addColorStop(0, "rgba(255, 255, 255, 0.88)");
-      hlGrad1.addColorStop(0.3, "rgba(255, 255, 255, 0.40)");
-      hlGrad1.addColorStop(0.65, "rgba(255, 255, 255, 0.05)");
-      hlGrad1.addColorStop(1, "rgba(255, 255, 255, 0)");
-      ctx!.fillStyle = hlGrad1;
-      ctx!.beginPath();
-      ctx!.ellipse(hl1X, hl1Y, hl1RadX, radius * 0.16, -Math.PI / 5.5, 0, Math.PI * 2);
-      ctx!.fill();
-
-      ctx!.beginPath();
-      ctx!.ellipse(cx - radius * 0.42, cy - radius * 0.45, radius * 0.07, radius * 0.035, -Math.PI / 4, 0, Math.PI * 2);
-      ctx!.fillStyle = "rgba(255, 255, 255, 0.72)";
-      ctx!.fill();
-      ctx!.restore();
-
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius - 0.5, -Math.PI * 0.85, -Math.PI * 0.15);
-      ctx!.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      ctx!.strokeStyle = "rgba(255, 255, 255, 0.25)";
       ctx!.lineWidth = 0.8;
       ctx!.lineCap = "round";
       ctx!.stroke();
 
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius - 0.6, Math.PI * 0.5, Math.PI * 0.95);
-      ctx!.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx!.strokeStyle = "rgba(255, 255, 255, 0.10)";
       ctx!.lineWidth = 0.5;
       ctx!.stroke();
     }
@@ -274,10 +215,11 @@ export const IdleOrb: React.FC = () => {
       ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx!.clip();
 
+      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
       drawSphereBase(cx, cy, radius);
-      drawBackgroundBlobs(cx, cy, radius);
       drawNeonFilaments(cx, cy, radius);
-      drawInnerShadow(cx, cy, radius);
+      drawInnerShadow(cx, cy, radius, isDark);
       drawGlassWallRefraction(cx, cy, radius);
 
       ctx!.restore();
@@ -297,7 +239,7 @@ export const IdleOrb: React.FC = () => {
 
   return (
     <div className="relative w-[52px] h-[52px] flex items-center justify-center select-none pointer-events-none">
-      <div className="absolute inset-1 rounded-full bg-[#38bdf8]/15 blur-md" />
+      <div className="absolute inset-1 rounded-full bg-[#6C6EF5]/15 blur-md" />
       <canvas
         ref={canvasRef}
         style={{ width: "52px", height: "52px" }}

@@ -8,10 +8,19 @@ interface FirecrawlSearchResult {
   title?: string;
   description?: string;
 }
+function simplifyQueryForFirecrawl(query: string): string {
+  return query
+    .replace(/site:\S+/gi, "")
+    .replace(/"/g, "")
+    .replace(/\s+OR\s+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export async function webSearch(query: string): Promise<string> {
   try {
-    log(`webSearch: attempting Firecrawl search for: "${query}"`);
+    const firecrawlQuery = simplifyQueryForFirecrawl(query);
+    log(`webSearch: attempting Firecrawl search for: "${firecrawlQuery}"${firecrawlQuery !== query ? ` (original: "${query}")` : ""}`);
     const response = await fetch(FIRECRAWL_API_URL, {
       method: "POST",
       headers: {
@@ -19,7 +28,7 @@ export async function webSearch(query: string): Promise<string> {
         "Authorization": `Bearer ${config.firecrawl.apiKey}`,
       },
       body: JSON.stringify({
-        query: query,
+        query: firecrawlQuery,
         limit: 5,
       }),
     });
@@ -166,5 +175,45 @@ export async function searchWallpapers(query: string): Promise<string> {
   } catch (error) {
     logError("searchWallpapers failed", error);
     return `搜索壁纸失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function scrapeUrl(url: string): Promise<string> {
+  try {
+    log(`scrapeUrl: attempting Firecrawl scrape for: "${url}"`);
+    const response = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.firecrawl.apiKey}`,
+      },
+      body: JSON.stringify({
+        url: url,
+        formats: ["markdown"],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Firecrawl HTTP ${response.status}: ${body}`);
+    }
+
+    const data = await response.json() as {
+      success: boolean;
+      data?: {
+        markdown?: string;
+        metadata?: Record<string, unknown>;
+      };
+      error?: string;
+    };
+
+    if (!data.success) {
+      throw new Error(data.error || "Firecrawl scrape failed");
+    }
+
+    return data.data?.markdown || "网页抓取成功，但未返回内容。";
+  } catch (error) {
+    logError(`scrapeUrl failed: ${error instanceof Error ? error.message : String(error)}`);
+    return `网页抓取失败: ${error instanceof Error ? error.message : String(error)}`;
   }
 }

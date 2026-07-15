@@ -1,7 +1,7 @@
 {
   "name": "Daisy",
-  "version": "0.1.0",
-  "description": "Daisy - AI voice assistant for macOS",
+  "version": "1.5.0",
+  "description": "Daisy：面向中文用户的 macOS AI 语音助手",
   "author": "Daisy",
   "main": "dist/main/index.js",
   "scripts": {
@@ -46,22 +46,30 @@
     "ws": "^8.21.0"
   },
   "build": {
-    "appId": "com.daisy.dev",
-    "productName": "Daisy Dev",
+    "appId": "com.daisy.app",
+    "productName": "Daisy",
     "directories": {
       "output": "releases"
     },
     "files": [
       "dist/**/*",
       "assets/**/*",
-      "daisy.env",
       "package.json"
     ],
     "asarUnpack": [
       "assets/bin/**",
-      "assets/models/**"
+      "assets/lib/**",
+      "assets/models/**",
+      "node_modules/node-global-key-listener/bin/**"
     ],
+    "dmg": {
+      "contents": [
+        { "x": 140, "y": 200 },
+        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+      ]
+    },
     "mac": {
+      "icon": "assets/icon.icns",
       "category": "public.app-category.utilities",
       "identity": null,
       "target": [
