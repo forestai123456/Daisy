@@ -540,6 +540,289 @@ export const availableTools: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "scrape_url",
+      description: "提取在线网页的纯净文本内容（剔除导航栏、侧边栏、广告等无关内容，只保留主体文字，常用于获取网页、文章或文档的具体正文进行理解与分析）",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "要提取正文内容的网页 URL",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_clipboard_text",
+      description: "获取用户当前 macOS 系统剪切板（Clipboard）中的纯文本内容",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_clipboard_text",
+      description: "将指定文本写入用户当前 macOS 系统剪切板（Clipboard）中，直接覆盖旧内容",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "要写入剪贴板的纯文本内容",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_email",
+      description: "调用本地 macOS Mail 应用程序快速发送一封邮件（静默发送，无需用户干预确认）",
+      parameters: {
+        type: "object",
+        properties: {
+          to: {
+            type: "string",
+            description: "收件人邮箱地址，例如 'example@domain.com'",
+          },
+          subject: {
+            type: "string",
+            description: "邮件主题（不写默认为'无主题'）",
+          },
+          body: {
+            type: "string",
+            description: "邮件正文内容，支持换行",
+          },
+        },
+        required: ["to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_unread_emails",
+      description: "调用本地 macOS Mail 应用读取收件箱中的未读邮件列表（最新邮件排在最前面）",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "integer",
+            description: "要获取的未读邮件数量，默认和推荐为 5",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recent_emails",
+      description: "调用本地 macOS Mail 应用读取收件箱中的最新邮件列表（包括已读和未读，最合适用户需要看最近邮件、今天/昨天有哪些邮件等场景，最新邮件排在最前面）",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "integer",
+            description: "要获取的最新邮件数量，默认和推荐为 5",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_emails",
+      description: "在本地 macOS Mail 中搜索收件箱中包含特定关键字的邮件（包括发件人、发件地址、主题或正文关键字，最新匹配邮件排在最前面）",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "搜索关键字（可以是发件人、主题关键词、正文关键词或日期等）",
+          },
+          limit: {
+            type: "integer",
+            description: "最多获取匹配邮件的数量，默认和推荐为 5",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "switch_audio_output",
+      description: "切换 macOS 音频输出设备（如耳机、外放、扬声器等）。会直接调用系统命令 SwitchAudioSource 进行切换，无需额外确认。",
+      parameters: {
+        type: "object",
+        properties: {
+          device: {
+            type: "string",
+            description: "要切换到的音频输出设备名称，例如「外置耳机」「Mac mini扬声器」「耳机」「外放」等",
+          },
+        },
+        required: ["device"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "trim_video",
+      description: "从视频中截取指定时间段，保存为新文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: {
+            type: "string",
+            description: "源视频文件路径",
+          },
+          start: {
+            type: "string",
+            description: "起始时间，格式如 00:01:02 或 1:02",
+          },
+          end: {
+            type: "string",
+            description: "结束时间，格式如 00:01:08 或 1:08",
+          },
+          output: {
+            type: "string",
+            description: "输出文件名（不含路径，默认保存到桌面）",
+          },
+        },
+        required: ["source", "start", "end"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "convert_video",
+      description: "转换视频格式（如 MP4、MOV、AVI、MKV、WebM 等互转）。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: {
+            type: "string",
+            description: "源视频文件路径",
+          },
+          format: {
+            type: "string",
+            description: "目标格式，如 mp4、mov、avi、mkv、webm、gif 等",
+          },
+          output: {
+            type: "string",
+            description: "输出文件名（不含路径，默认保存到桌面）",
+          },
+        },
+        required: ["source", "format"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "convert_document",
+      description: "转换文档格式（TXT、Markdown、DOCX、PDF、RTF、HTML 等任意文档格式互转）。自动选择最佳转换方式，无需关心底层工具。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: {
+            type: "string",
+            description: "源文件路径",
+          },
+          target: {
+            type: "string",
+            description: "目标文件路径（扩展名决定输出格式）",
+          },
+        },
+        required: ["source", "target"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_document",
+      description: "编辑 Word 文档（.docx）。删除指定颜色文字时自动保留下划线、粗体等格式（替换为等长空格）。页码通过解析文档内部的节分页符（section break）来定位，精确可靠。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: {
+            type: "string",
+            description: "源 .docx 文件路径",
+          },
+          target: {
+            type: "string",
+            description: "输出 .docx 文件路径（不覆盖源文件）",
+          },
+          operation: {
+            type: "string",
+            enum: ["remove_colored_text", "run_code"],
+            description: "操作类型。remove_colored_text: 删除指定颜色文字; run_code: 执行自定义 Python 代码（doc 对象可用）",
+          },
+          color: {
+            type: "string",
+            description: "要删除的文字颜色（十六进制 RGB），如 FF0000（红）。remove_colored_text 需要",
+          },
+          page_start: {
+            type: "integer",
+            description: "起始页码（从1开始），可选，不填则处理全文",
+          },
+          page_end: {
+            type: "integer",
+            description: "结束页码（含），需和 page_start 一起用",
+          },
+          code: {
+            type: "string",
+            description: "自定义 Python 代码（仅 run_code 需要）。doc/W_NS/RGBColor 可用，不要 import 和 doc.save()",
+          },
+        },
+        required: ["source", "target", "operation"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "edit_pdf",
+      description: "直接在 PDF 上原地修改（不转 Word，100% 保留原版面/字体/颜色）。只有 PDF、无源 docx 时用。operation: find=搜索文本返回坐标; fill=在锚点右侧填入文字(填空/答案); delete=删文字(按文本或按颜色,如删所有红字); replace=替换文字。",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string", description: "源 .pdf 路径" },
+          target: { type: "string", description: "输出 .pdf 路径" },
+          operation: { type: "string", enum: ["find", "fill", "delete", "replace"], description: "操作类型" },
+          query: { type: "string", description: "find/replace 时搜索的文本" },
+          anchor: { type: "string", description: "fill 定位锚点(在其右侧填入文字)" },
+          text: { type: "string", description: "fill 填入文字; delete 按文本时为要删的文本; replace 新文字" },
+          color: { type: "string", description: "十六进制 RGB 如 FF0000。fill/replace 文字颜色; delete 按 color 时为要删的颜色" },
+          fontsize: { type: "integer", description: "fill 字号默认 11" },
+          mode: { type: "string", enum: ["text", "color"], description: "delete: text=按文本删, color=按颜色删" },
+          replace_with: { type: "string", description: "replace 替换后的新文字" }
+        },
+        required: ["source", "target", "operation"]
+      }
+    }
+  },
 ];
 
 export interface ToolCall {

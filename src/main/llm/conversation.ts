@@ -4,7 +4,7 @@ import { ChatMessage, DeepSeekClient } from "./deepseek";
 import { SYSTEM_PROMPT } from "./system-prompt";
 
 const MAX_HISTORY_MESSAGES = 20;
-const MAX_HISTORY_TOKENS_ESTIMATE = 6000;
+const MAX_HISTORY_TOKENS_ESTIMATE = 20000;
 
 function getSystemPromptWithEnv(): string {
   try {
@@ -47,6 +47,12 @@ export class ConversationManager {
     return this.messages;
   }
 
+  setMessages(newMessages: ChatMessage[]): void {
+    this.messages = [...newMessages];
+    this.trimHistory();
+    this.lastActiveAt = Date.now();
+  }
+
   addUserMessage(text: string): void {
     this.trimHistory();
     this.messages.push({ role: "user", content: text });
@@ -68,21 +74,79 @@ export class ConversationManager {
   }
 
   private trimHistory(): void {
+    const maxMessages = MAX_HISTORY_MESSAGES;
+    const maxTokens = MAX_HISTORY_TOKENS_ESTIMATE;
+
     // Keep system message + last N messages
-    if (this.messages.length > MAX_HISTORY_MESSAGES + 1) {
+    if (this.messages.length > maxMessages + 1) {
       const system = this.messages[0];
-      this.messages = [system, ...this.messages.slice(-MAX_HISTORY_MESSAGES)];
+      this.messages = [system, ...this.messages.slice(-maxMessages)];
     }
 
     // Rough token-based trimming (1 token ≈ 4 chars for Chinese)
-    let totalChars = this.messages.reduce((sum, m) => sum + m.content.length, 0);
-    while (totalChars > MAX_HISTORY_TOKENS_ESTIMATE * 4 && this.messages.length > 2) {
+    let totalChars = this.messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+    while (totalChars > maxTokens * 4 && this.messages.length > 2) {
       const removed = this.messages.splice(1, 1)[0];
       if (removed) {
-        totalChars -= removed.content.length;
+        totalChars -= removed.content?.length || 0;
       } else {
         break;
       }
     }
+
+    // Clean orphaned tool calls/responses at the very end of trimming
+    this.messages = this.cleanOrphanedTools(this.messages);
+  }
+
+  private cleanOrphanedTools(messages: ChatMessage[]): ChatMessage[] {
+    const result: ChatMessage[] = [];
+    let i = 0;
+
+    // Always keep system prompt
+    if (messages.length > 0 && messages[0].role === "system") {
+      result.push(messages[0]);
+      i = 1;
+    }
+
+    while (i < messages.length) {
+      const msg = messages[i];
+
+      if (msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0) {
+        const expectedIds = new Set(msg.tool_calls.map((tc) => tc.id));
+        const group: ChatMessage[] = [msg];
+        i++;
+
+        const actualIds = new Set<string>();
+        let invalidGroup = expectedIds.size !== msg.tool_calls.length;
+
+        // Gather consecutive tool messages
+        while (i < messages.length && messages[i].role === "tool") {
+          const toolMsg = messages[i];
+          group.push(toolMsg);
+
+          const id = toolMsg.tool_call_id;
+          if (!id || !expectedIds.has(id) || actualIds.has(id)) {
+            invalidGroup = true;
+          } else {
+            actualIds.add(id);
+          }
+          i++;
+        }
+
+        const isMatch = !invalidGroup && actualIds.size === expectedIds.size;
+
+        if (isMatch) {
+          result.push(...group);
+        }
+      } else if (msg.role === "tool") {
+        // Discard standalone tool message
+        i++;
+      } else {
+        result.push(msg);
+        i++;
+      }
+    }
+
+    return result;
   }
 }

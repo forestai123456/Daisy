@@ -66,6 +66,18 @@ export class AsrSession extends EventEmitter {
     this.sessionActive = false;
     log(`ASR: stop() called, total audio: ${this.totalAudioBytes} bytes, lastText="${this.lastText}"`);
 
+    // A shortcut tap used only to interrupt TTS can finish before the audio
+    // renderer has produced a single PCM frame. There is no audio for the
+    // server to recognize in that case, so waiting the normal 10 seconds for
+    // a delayed ASR result only leaves the orb visibly idle for too long.
+    // Do not use lastText here: real recorded speech may still have an empty
+    // partial result while the server is finishing recognition.
+    if (this.totalAudioBytes === 0) {
+      log("ASR: no audio captured; finalizing immediately");
+      this.finish();
+      return;
+    }
+
     this.flushAudio(true);
 
     // Unified polling: check every 300ms for partial text stability.
@@ -127,8 +139,15 @@ export class AsrSession extends EventEmitter {
       clearTimeout(this.fastFinishTimer);
       this.fastFinishTimer = null;
     }
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.close();
+    const socket = this.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+      // finish() may run before the WebSocket handshake completes (for
+      // example, a TTS-interrupt tap). Close that exact socket once it opens;
+      // relying on this.socket later is unsafe because a new ASR session may
+      // already have replaced it.
+      socket.once("open", () => socket.close());
     }
     this.socket = null;
     this.audioBuffer = Buffer.alloc(0);

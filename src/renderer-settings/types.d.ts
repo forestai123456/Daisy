@@ -14,7 +14,7 @@ export interface DiriAPI {
   sendRendererError: (message: string) => void;
   sendTtsPlayEnded: () => void;
 
-  getWhisperStatus: () => Promise<{
+  getWhisperStatus: (modelName?: string) => Promise<{
     cliInstalled: boolean;
     modelExists: boolean;
     modelPath: string;

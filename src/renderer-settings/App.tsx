@@ -14,6 +14,7 @@ import {
   X,
   Power,
   History,
+  ExternalLink,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { IdleOrb } from "./components/IdleOrb";
@@ -143,9 +144,10 @@ export default function App() {
     })();
   }, []);
 
-  const refreshWhisperStatus = async () => {
+  const refreshWhisperStatus = async (modelName?: string) => {
     try {
-      const status = await window.diriAPI.getWhisperStatus();
+      const name = modelName || settings.WHISPER_MODEL;
+      const status = await window.diriAPI.getWhisperStatus(name);
       setWhisperCliInstalled(status.cliInstalled);
       setWhisperModelStatus(status.modelExists ? "downloaded" : "not_downloaded");
     } catch {
@@ -403,15 +405,15 @@ export default function App() {
         </aside>
 
         {/* Content */}
-        <div className="flex flex-col h-full overflow-hidden">
-          <main className="flex-1 overflow-y-auto pb-20 pr-2 glass-scroll">
-            <AnimatePresence mode="wait">
+        <div className="relative flex flex-col h-full overflow-hidden pb-2">
+          <main className="flex-1 overflow-y-auto pb-16 pr-2 glass-scroll">
+            <AnimatePresence mode="popLayout">
               <motion.div
                 key={activeSection}
-                initial={{ opacity: 0, y: 12, scale: 0.985 }}
+                initial={{ opacity: 0, y: 8, scale: 0.995 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.985 }}
-                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                exit={{ opacity: 0, y: -8, scale: 0.995 }}
+                transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
                 className="flex flex-col gap-5"
               >
                 {/* LLM */}
@@ -419,7 +421,19 @@ export default function App() {
                   <div>
                     <div className="mb-5 px-1">
                       <h2 className="font-display font-semibold text-2xl tracking-tight text-slate-800">大语言模型</h2>
-                      <p className="text-[12px] text-slate-400 mt-1">配置对话大模型（DeepSeek 兼容 OpenAI 格式）</p>
+                      <p className="text-[12px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span>配置对话大模型（DeepSeek 兼容 OpenAI 格式）</span>
+                        <span className="text-slate-300 select-none">•</span>
+                        <a
+                          href="https://platform.deepseek.com/api_keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-all active:scale-95 cursor-pointer font-medium hover:underline"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>获取</span>
+                        </a>
+                      </p>
                     </div>
                     <div className="liquid-glass p-6 rounded-[24px] flex flex-col gap-5">
                       <div className="flex flex-col gap-2">
@@ -450,7 +464,19 @@ export default function App() {
                     <div>
                       <div className="mb-5 px-1">
                         <h2 className="font-display font-semibold text-2xl tracking-tight text-slate-800">语音识别</h2>
-                        <p className="text-[12px] text-slate-400 mt-1">火山引擎 / 豆包 Seed ASR，将语音转成文字</p>
+                        <p className="text-[12px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span>火山引擎 / 豆包 Seed ASR，用于将语音转成文字</span>
+                          <span className="text-slate-300 select-none">•</span>
+                          <a
+                            href="https://console.volcengine.com/speech/service/10038"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-all active:scale-95 cursor-pointer font-medium hover:underline"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>获取</span>
+                          </a>
+                        </p>
                       </div>
                       <div className="liquid-glass p-6 rounded-[24px] flex flex-col gap-5">
                         <div className="flex flex-col gap-2">
@@ -492,7 +518,19 @@ export default function App() {
                   <div>
                     <div className="mb-5 px-1">
                       <h2 className="font-display font-semibold text-2xl tracking-tight text-slate-800">联网搜索</h2>
-                      <p className="text-[12px] text-slate-400 mt-1">Firecrawl 提供的网页智能搜索与实时爬取能力</p>
+                      <p className="text-[12px] text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span>Firecrawl 提供的网页智能搜索与实时爬取能力</span>
+                        <span className="text-slate-300 select-none">•</span>
+                        <a
+                          href="https://www.firecrawl.dev/app/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-all active:scale-95 cursor-pointer font-medium hover:underline"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>获取</span>
+                        </a>
+                      </p>
                     </div>
                     <div className="liquid-glass p-6 rounded-[24px] flex flex-col gap-5">
                       <div className="flex flex-col gap-2">
@@ -594,7 +632,7 @@ export default function App() {
                         <span className="text-[13px] font-semibold text-slate-700">依赖模型</span>
                         <div className="select-container w-44">
                           <select value={settings.WHISPER_MODEL}
-                            onChange={(e) => { handleInputChange("WHISPER_MODEL", e.target.value); setTimeout(refreshWhisperStatus, 150); }}
+                            onChange={(e) => { handleInputChange("WHISPER_MODEL", e.target.value); setTimeout(() => refreshWhisperStatus(e.target.value), 150); }}
                             className="glass-select py-1.5 text-[12px] pr-8">
                             <option value="ggml-tiny.bin">Tiny (39MB, 极速)</option>
                             <option value="ggml-base.bin">Base (142MB, 均衡)</option>
@@ -742,7 +780,7 @@ export default function App() {
           </main>
 
           {/* Footer */}
-          <footer className="absolute bottom-6 left-6 right-6 h-[72px] liquid-glass rounded-[22px] px-5 flex items-center justify-between gap-4">
+          <footer className="h-[72px] liquid-glass rounded-[22px] px-5 flex items-center justify-between gap-4 mr-2 shrink-0 mt-4">
             <div className="flex-1 min-w-0 pr-4">
               <AnimatePresence mode="wait">
                 {statusMessage.text && (

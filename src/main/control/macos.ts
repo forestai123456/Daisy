@@ -1,13 +1,16 @@
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { BrowserWindow } from "electron";
 import { log, logError } from "../utils/logger";
 import { matchApp } from "../command/router";
-import { getBundledBin } from "../config/env";
+import { getBundledBin, config } from "../config/env";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
 
 function expandPath(p: string): string {
   if (p.startsWith("~")) {
@@ -289,6 +292,181 @@ export async function readSelectedText(): Promise<string> {
   }
 }
 
+export async function getClipboardText(): Promise<string> {
+  try {
+    const text = await runAppleScript("get the clipboard as text");
+    return text.trim() || "剪贴板为空，或不包含文本内容。";
+  } catch (error) {
+    return `获取剪贴板失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function writeClipboardText(text: string): Promise<string> {
+  try {
+    const { clipboard } = require("electron");
+    clipboard.writeText(text);
+    log(`writeClipboardText: successfully wrote ${text.length} characters to clipboard`);
+    return `已成功复制到剪贴板。`;
+  } catch (error) {
+    return `写入剪贴板失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function sendEmail(to: string, subject: string, body: string): Promise<string> {
+  const script = `
+tell application "Mail"
+    try
+        set newMessage to make new outgoing message with properties {subject:${JSON.stringify(subject)}, content:${JSON.stringify(body)} & linefeed}
+        tell newMessage
+            make new to recipient at end of to recipients with properties {address:${JSON.stringify(to)}}
+            send
+        end tell
+        return "SUCCESS"
+    on error errMsg
+        return errMsg
+    end try
+end tell
+  `;
+  try {
+    log(`sendEmail: sending to "${to}", subject: "${subject}"`);
+    const result = await runAppleScript(script);
+    if (result.trim() === "SUCCESS") {
+      return `已成功发送邮件给「${to}」，主题：「${subject}」。`;
+    } else {
+      return `发送邮件失败: ${result}`;
+    }
+  } catch (error) {
+    return `发送邮件出错: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function readUnreadEmails(limit: number = 5): Promise<string> {
+  const script = `
+tell application "Mail"
+    try
+        set unreadMessages to (messages of inbox whose read status is false)
+        set msgCount to count of unreadMessages
+        if msgCount is 0 then
+            return "没有未读邮件。"
+        end if
+        set limitCount to msgCount
+        if limitCount > ${limit} then set limitCount to ${limit}
+        set results to ""
+        -- Loop backwards to get newest unread emails first
+        repeat with i from msgCount to (msgCount - limitCount + 1) by -1
+            set msg to item i of unreadMessages
+            set senderName to sender of msg
+            set subj to subject of msg
+            set sentDate to (date sent of msg) as string
+            set bodyText to content of msg
+            if length of bodyText > 120 then
+                set bodyText to (characters 1 thru 120 of bodyText) as string
+            end if
+            set results to results & "邮件 " & ((msgCount - i + 1) as string) & ":\\n  发件人: " & senderName & "\\n  主题: " & subj & "\\n  时间: " & sentDate & "\\n  正文: " & bodyText & "\\n\\n"
+        end repeat
+        return results
+    on error errMsg
+        return "读取邮件错误: " & errMsg
+    end try
+end tell
+  `;
+  try {
+    log(`readUnreadEmails: reading up to ${limit} unread emails`);
+    const result = await runAppleScript(script);
+    return result;
+  } catch (error) {
+    return `获取未读邮件出错: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function getRecentEmails(limit: number = 5): Promise<string> {
+  const script = `
+tell application "Mail"
+    try
+        set inboxMessages to messages of inbox
+        set msgCount to count of inboxMessages
+        if msgCount is 0 then
+            return "收件箱为空。"
+        end if
+        set limitCount to msgCount
+        if limitCount > ${limit} then set limitCount to ${limit}
+        set results to ""
+        -- Loop backwards to get newest emails first
+        repeat with i from msgCount to (msgCount - limitCount + 1) by -1
+            set msg to item i of inboxMessages
+            set senderName to sender of msg
+            set subj to subject of msg
+            set sentDate to (date sent of msg) as string
+            set readStatus to (read status of msg)
+            set isRead to "已读"
+            if readStatus is false then set isRead to "未读"
+            set bodyText to content of msg
+            if length of bodyText > 120 then
+                set bodyText to (characters 1 thru 120 of bodyText) as string
+            end if
+            set results to results & "邮件 " & ((msgCount - i + 1) as string) & " [" & isRead & "]:\\n  发件人: " & senderName & "\\n  主题: " & subj & "\\n  时间: " & sentDate & "\\n  正文: " & bodyText & "\\n\\n"
+        end repeat
+        return results
+    on error errMsg
+        return "获取邮件错误: " & errMsg
+    end try
+end tell
+  `;
+  try {
+    log(`getRecentEmails: fetching recent ${limit} emails`);
+    const result = await runAppleScript(script);
+    return result;
+  } catch (error) {
+    return `获取最新邮件出错: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function searchEmails(query: string, limit: number = 5): Promise<string> {
+  const script = `
+tell application "Mail"
+    try
+        set q to ${JSON.stringify(query)}
+        set matches to (messages of inbox whose subject contains q or sender contains q or content contains q)
+        set msgCount to count of matches
+        if msgCount is 0 then
+            return "未找到匹配的邮件。"
+        end if
+        set limitCount to msgCount
+        if limitCount > ${limit} then set limitCount to ${limit}
+        set results to ""
+        -- Loop backwards to get newest matching emails first
+        repeat with i from msgCount to (msgCount - limitCount + 1) by -1
+            set msg to item i of matches
+            set senderName to sender of msg
+            set subj to subject of msg
+            set sentDate to (date sent of msg) as string
+            set readStatus to (read status of msg)
+            set isRead to "已读"
+            if readStatus is false then set isRead to "未读"
+            set bodyText to content of msg
+            if length of bodyText > 120 then
+                set bodyText to (characters 1 thru 120 of bodyText) as string
+            end if
+            set results to results & "邮件 " & ((msgCount - i + 1) as string) & " [" & isRead & "]:\\n  发件人: " & senderName & "\\n  主题: " & subj & "\\n  时间: " & sentDate & "\\n  正文: " & bodyText & "\\n\\n"
+        end repeat
+        return results
+    on error errMsg
+        return "搜索邮件错误: " & errMsg
+    end try
+end tell
+  `;
+  try {
+    log(`searchEmails: searching inbox for "${query}" (limit ${limit})`);
+    const result = await runAppleScript(script);
+    return result;
+  } catch (error) {
+    return `搜索邮件出错: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+
+
+
 export async function getCurrentTime(): Promise<string> {
   const now = new Date();
   const days = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
@@ -304,8 +482,15 @@ export async function getCurrentTime(): Promise<string> {
 export async function readFile(filePath: string): Promise<string> {
   const resolved = expandPath(filePath);
   try {
-    const content = fs.readFileSync(resolved, "utf-8");
-    const truncated = content.length > 5000 ? content.slice(0, 5000) + "\n...(内容过长，已截断)" : content;
+    const ext = path.extname(resolved).toLowerCase();
+    let content: string;
+    if (ext === ".docx" || ext === ".doc") {
+      const { stdout } = await execAsync(`textutil -convert txt -stdout "${resolved}"`);
+      content = stdout;
+    } else {
+      content = fs.readFileSync(resolved, "utf-8");
+    }
+    const truncated = content.length > 100000 ? content.slice(0, 100000) + "\n...(内容过长，已截断)" : content;
     return `文件 ${filePath} 的内容：\n${truncated}`;
   } catch (error) {
     return `读取文件失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -394,7 +579,7 @@ export async function downloadMedia(url: string, type: string = "video", destina
     if (type === "audio") {
       args = `-x --audio-format mp3 --audio-quality 0 -o "%(title)s.%(ext)s"`;
     } else {
-      args = `-f "bv*+ba/b" -o "%(title)s.%(ext)s"`;
+      args = `-f "bv*+ba/b" --merge-output-format mp4 -o "%(title)s.mp4"`;
     }
     
     const cmd = `"${ytdlpPath}" ${args} -P "${saveDir}" "${url}"`;
@@ -715,6 +900,478 @@ export async function openUrl(url: string): Promise<string> {
   }
 }
 
+export async function switchAudioOutput(deviceName: string): Promise<string> {
+  try {
+    // List devices to find the best match
+    const SW = getBundledBin("SwitchAudioSource");
+    const { stdout } = await execAsync(`"${SW}" -a -t output`);
+    const lines = stdout.split("\n").map((l) => l.replace(/\s*\(.*\)\s*$/, "").trim()).filter(Boolean);
+
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+    const target = deviceName.toLowerCase();
+    const targetNorm = normalize(deviceName);
+
+    let best = lines.find((d) => d.toLowerCase() === target);
+    if (!best) {
+      best = lines.find((d) => normalize(d) === targetNorm);
+    }
+    if (!best) {
+      best = lines.find((d) => d.toLowerCase().includes(target) || target.includes(d.toLowerCase()));
+    }
+    if (!best) {
+      best = lines.find((d) => normalize(d).includes(targetNorm) || targetNorm.includes(normalize(d)));
+    }
+    // "声卡"/"音频接口" → try to find a pro audio interface device
+    if (!best && /声卡|音频接口|audio\s*interface/i.test(deviceName)) {
+      best = lines.find((d) => /SSL|audio|interface|usb|thunderbolt|firewire|rme|focusrite|apollo|motu|ua[ -]|volt/i.test(d));
+    }
+    if (!best) {
+      return `找不到音频设备「${deviceName}」。当前可用设备：${lines.join("、")}`;
+    }
+    await execAsync(`"${SW}" -t output -s "${best}"`);
+    log(`switchAudioOutput: switched to "${best}"`);
+    return `已切换音频输出到「${best}」`;
+  } catch (error) {
+    return `切换音频输出失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function trimVideo(source: string, start: string, end: string, output?: string): Promise<string> {
+  try {
+    const src = expandPath(source);
+    if (!fs.existsSync(src)) return `找不到源文件「${source}」`;
+
+    const outName = output || `clip_${start.replace(/:/g, "m")}s-${end.replace(/:/g, "m")}s.mp4`;
+    const outPath = path.join(path.dirname(src), outName);
+
+    const dur = toSeconds(end) - toSeconds(start);
+    if (dur <= 0) return `截取时间范围无效：${start} 到 ${end}`;
+
+    const cmd = `ffmpeg -y -ss "${start}" -i "${src}" -t ${dur} -c:v libx264 -preset fast -c:a aac -movflags +faststart "${outPath}"`;
+    log(`trimVideo: ${cmd}`);
+    await execAsync(cmd, { timeout: 120000 });
+    return `已截取视频片段，保存至「${outName}」（${dur} 秒）`;
+  } catch (error) {
+    return `视频截取失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export async function convertVideo(source: string, format: string, output?: string): Promise<string> {
+  try {
+    const src = expandPath(source);
+    if (!fs.existsSync(src)) return `找不到源文件「${source}」`;
+
+    const baseName = path.basename(src, path.extname(src));
+    const outName = output || `${baseName}.${format}`;
+    const outPath = path.join(path.dirname(src), outName);
+
+    const cmd = `ffmpeg -y -i "${src}" -c:v libx264 -preset fast -c:a aac -movflags +faststart "${outPath}"`;
+    log(`convertVideo: ${cmd}`);
+    await execAsync(cmd, { timeout: 300000 });
+    return `已转换视频格式，保存至「${outName}」`;
+  } catch (error) {
+    return `视频格式转换失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/** Use Electron's built-in Chromium to render HTML → PDF (no external tools needed) */
+async function htmlToPdfViaElectron(htmlPath: string, pdfPath: string): Promise<void> {
+  const win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+    },
+  });
+
+  try {
+    // file:// protocol to load local HTML with correct origin for relative resources
+    const fileUrl = `file://${htmlPath}`;
+    await win.loadURL(fileUrl);
+
+    // Wait for any deferred rendering (fonts, images, etc.)
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const pdfData = await win.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      margins: { top: 0.59, bottom: 0.59, left: 0.47, right: 0.47 }, // inches
+    });
+
+    await fs.promises.writeFile(pdfPath, pdfData);
+  } finally {
+    // Always clean up the hidden window
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
+function getSofficePath(): string | null {
+  const candidates = [
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return null;
+}
+
+export async function convertDocument(source: string, target: string): Promise<string> {
+  try {
+    const src = expandPath(source);
+    const dst = expandPath(target);
+    if (!fs.existsSync(src)) return `找不到源文件「${source}」`;
+
+    const srcExt = path.extname(src).toLowerCase();
+    const dstExt = path.extname(dst).toLowerCase();
+
+    // HTML → PDF: use Electron's built-in Chromium (supports Chinese fonts, no external deps)
+    if ((srcExt === ".html" || srcExt === ".htm") && dstExt === ".pdf") {
+      await htmlToPdfViaElectron(src, dst);
+      return `已转换为 PDF，保存至「${path.basename(dst)}」`;
+    }
+
+    if (dstExt === ".pdf" && srcExt !== ".pdf" && srcExt !== ".html" && srcExt !== ".htm") {
+      const soffice = getSofficePath();
+      if (soffice) {
+        const tmpOutDir = path.join(os.tmpdir(), `diri-soffice-${Date.now()}`);
+        fs.mkdirSync(tmpOutDir, { recursive: true });
+        try {
+          const cmd = `"${soffice}" --headless --convert-to pdf --outdir "${tmpOutDir}" "${src}"`;
+          await execAsync(cmd, { timeout: 120000, env: { ...process.env, PATH: `/opt/homebrew/bin:${process.env.PATH || ""}` } });
+          const produced = path.join(tmpOutDir, path.basename(src, path.extname(src)) + ".pdf");
+          if (!fs.existsSync(produced)) throw new Error("LibreOffice 未生成 PDF");
+          fs.copyFileSync(produced, dst);
+          return `已转换为 PDF（LibreOffice，保留排版与颜色），保存至「${path.basename(dst)}」`;
+        } finally {
+          fs.rmSync(tmpOutDir, { recursive: true, force: true });
+        }
+      }
+    }
+
+    const pandocBin = getBundledBin("pandoc");
+
+    if (srcExt === ".pdf") {
+      const tmpTxt = path.join(os.tmpdir(), `diri-convert-${Date.now()}.txt`);
+      await execAsync(`pdftotext "${src}" "${tmpTxt}"`);
+      const pdfEngine = dstExt === ".pdf" ? ` --pdf-engine=${getBundledBin("weasyprint")}` : "";
+      const cmd = `"${pandocBin}"${pdfEngine} "${tmpTxt}" -o "${dst}"`;
+      await execAsync(cmd, { timeout: 60000, env: { ...process.env, PATH: `/opt/homebrew/bin:${process.env.PATH || ""}` } });
+      await fs.promises.unlink(tmpTxt).catch(() => {});
+    } else {
+      // Non-PDF input: pandoc handles directly
+      const pdfEngine = dstExt === ".pdf" ? ` --pdf-engine=${getBundledBin("weasyprint")}` : "";
+      const cmd = `"${pandocBin}"${pdfEngine} "${src}" -o "${dst}"`;
+      await execAsync(cmd, { timeout: 60000, env: { ...process.env, PATH: `/opt/homebrew/bin:${process.env.PATH || ""}` } });
+    }
+
+    return `已转换文档，保存至「${path.basename(dst)}」`;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return `文档转换失败: ${msg}`;
+  }
+}
+
+export async function editDocument(
+  source: string, target: string, operation: string,
+  color?: string, pageStart?: number, pageEnd?: number,
+  code?: string
+): Promise<string> {
+  try {
+    const src = expandPath(source);
+    const dst = expandPath(target);
+    if (!fs.existsSync(src)) return `找不到源文件「${source}」`;
+
+    const ext = path.extname(src).toLowerCase();
+    if (ext !== ".docx") return `edit_document 仅支持 .docx 文件，源文件扩展名为「${ext}」`;
+
+    let script: string;
+
+    if (operation === "remove_colored_text") {
+      const c = (color || "FF0000").replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
+      const pageClause = (pageStart != null && pageEnd != null)
+        ? `
+# —— 页码范围 ——
+page_start = ${pageStart}
+page_end = ${pageEnd}
+
+# 用节分页符构建真实页码映射
+page_map = []
+cur = 0
+for i, p in enumerate(doc.paragraphs):
+    has_break = False
+    for run in p.runs:
+        for br in run._element.findall(f"{{{W_NS}}}br"):
+            if br.get(f"{{{W_NS}}}type") == "page":
+                has_break = True
+    sp = p._element.find(f"{{{W_NS}}}pPr/{{{W_NS}}}sectPr")
+    if sp is not None:
+        t = sp.find(f"{{{W_NS}}}type")
+        if t is None or t.get(f"{{{W_NS}}}val") != "continuous":
+            has_break = True
+    if has_break and i > cur:
+        page_map.append((cur, i))
+        cur = i + 1
+page_map.append((cur, len(doc.paragraphs) - 1))
+
+if page_start > len(page_map) or page_end > len(page_map):
+    print(f"文档只有 {len(page_map)} 页，无法处理第 {page_start}-{page_end} 页")
+    sys.exit(0)
+
+target = range(page_map[page_start-1][0], page_map[page_end-1][1] + 1)
+print(f"总页数: {len(page_map)}, 目标页码: {page_start}-{page_end}, 段落范围: {min(target)}-{max(target)}")
+`
+        : `
+target = range(len(doc.paragraphs))
+print(f"处理全文，共 {len(doc.paragraphs)} 个段落")
+`;
+
+      script = `import sys, os
+sys.path.insert(0, os.path.expanduser("~/.local/lib/python3/site-packages"))
+import docx
+from docx.shared import RGBColor
+
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+TARGET_COLOR = "${c}"
+TARGET_R = int(TARGET_COLOR[0:2], 16)
+TARGET_G = int(TARGET_COLOR[2:4], 16)
+TARGET_B = int(TARGET_COLOR[4:6], 16)
+
+doc = docx.Document(${JSON.stringify(src)})
+${pageClause}
+
+# —— 统计 ——
+total_colored = 0
+table_colored = 0
+for i in target:
+    for run in doc.paragraphs[i].runs:
+        if run.font.color and run.font.color.rgb == RGBColor(TARGET_R, TARGET_G, TARGET_B):
+            total_colored += 1
+for t in doc.tables:
+    for row in t.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                for run in p.runs:
+                    if run.font.color and run.font.color.rgb == RGBColor(TARGET_R, TARGET_G, TARGET_B):
+                        table_colored += 1
+print(f"目标范围段落色 #{TARGET_COLOR}: {total_colored}, 表格: {table_colored}")
+
+# —— 执行删除 ——
+cleared = 0
+for i in target:
+    for run in doc.paragraphs[i].runs:
+        if run.font.color and run.font.color.rgb == RGBColor(TARGET_R, TARGET_G, TARGET_B):
+            run.text = " " * len(run.text)
+            run.font.color.rgb = None
+            cleared += 1
+
+doc.save(${JSON.stringify(dst)})
+print(f"已清除 {cleared} 个 run（下划线/格式已保留）")
+`;
+
+    } else if (operation === "run_code") {
+      script = `import sys, os
+sys.path.insert(0, os.path.expanduser("~/.local/lib/python3/site-packages"))
+import docx
+from docx.shared import RGBColor
+
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+doc = docx.Document(${JSON.stringify(src)})
+
+# === 用户代码 ===
+${code ?? ""}
+# === 结束 ===
+
+doc.save(${JSON.stringify(dst)})
+empty_ul = 0
+for p in doc.paragraphs:
+    if any(r.underline and (r.text is None or r.text.strip() == "") for r in p.runs):
+        empty_ul += 1
+for tbl in doc.tables:
+    for row in tbl.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                if any(r.underline and (r.text is None or r.text.strip() == "") for r in p.runs):
+                    empty_ul += 1
+print("OK: document saved")
+print("RESCAN: remaining_empty_underlined_paragraphs=" + str(empty_ul))
+`;
+    } else {
+      return `未知操作: ${operation}`;
+    }
+
+    const scriptPath = path.join(os.tmpdir(), `diri-edit-doc-${Date.now()}.py`);
+    await fs.promises.writeFile(scriptPath, script, "utf-8");
+
+    try {
+      const { stdout, stderr } = await execAsync(`python3 "${scriptPath}"`, { timeout: 30000 });
+      const output = stdout.trim() + (stderr.trim() ? `\nstderr: ${stderr.trim()}` : "");
+      log(`editDocument: ${output}`);
+      return `已编辑文档，保存至「${path.basename(dst)}」（${output}）`;
+    } finally {
+      await fs.promises.unlink(scriptPath).catch(() => {});
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return `文档编辑失败: ${msg}`;
+  }
+}
+
+export async function editPdf(
+  source: string, target: string, operation: string,
+  query?: string, anchor?: string, text?: string, color?: string,
+  fontsize?: number, mode?: string, replaceWith?: string
+): Promise<string> {
+  try {
+    const src = expandPath(source);
+    const dst = expandPath(target);
+    if (!fs.existsSync(src)) return `找不到源文件「${source}」`;
+    if (path.extname(src).toLowerCase() !== ".pdf") return `edit_pdf 仅支持 .pdf 文件`;
+
+    let script: string;
+
+    if (operation === "find") {
+      script = `import fitz
+doc = fitz.open(${JSON.stringify(src)})
+query = ${JSON.stringify(query || "")}
+results = []
+for pno in range(len(doc)):
+    page = doc[pno]
+    try:
+        rects = page.search_for(query)
+    except Exception:
+        rects = []
+    for r in rects:
+        results.append(f"页{pno+1} ({r.x0:.0f},{r.y0:.0f},{r.x1:.0f},{r.y1:.0f})")
+print(f"找到 {len(results)} 处" if results else "未找到")
+for x in results[:30]:
+    print(x)
+`;
+    } else if (operation === "fill") {
+      const c = (color || "FF0000").toUpperCase();
+      script = `import fitz
+doc = fitz.open(${JSON.stringify(src)})
+anchor = ${JSON.stringify(anchor || "")}
+text = ${JSON.stringify(text || "")}
+color_hex = ${JSON.stringify(c)}
+cr = int(color_hex[0:2], 16) / 255
+cg = int(color_hex[2:4], 16) / 255
+cb = int(color_hex[4:6], 16) / 255
+fontsize = ${fontsize ?? 11}
+fn = "helv" if all(ord(c) < 128 for c in text) else "china-s"
+count = 0
+for pno in range(len(doc)):
+    page = doc[pno]
+    rects = page.search_for(anchor)
+    for rect in rects:
+        point = fitz.Point(rect.x1 + 1, rect.y1 - 2)
+        maxw = page.rect.width - point.x - 10
+        if maxw < 20:
+            maxw = 200
+        fs = fontsize
+        while fs > 6 and fitz.get_text_length(text, fontname=fn, fontsize=fs) > maxw:
+            fs -= 0.5
+        page.insert_text(point, text, fontname=fn, fontsize=fs, color=(cr, cg, cb))
+        count += 1
+doc.save(${JSON.stringify(dst)})
+print(f"已填入 {count} 处（锚点='{anchor}'，文字='{text}'，颜色=#{color_hex}）")
+`;
+    } else if (operation === "delete") {
+      const c = (color || "FF0000").toUpperCase();
+      script = `import fitz
+doc = fitz.open(${JSON.stringify(src)})
+mode = ${JSON.stringify(mode || "text")}
+count = 0
+if mode == "color":
+    color_hex = ${JSON.stringify(c)}
+    target_int = int(color_hex, 16)
+    for pno in range(len(doc)):
+        page = doc[pno]
+        d = page.get_text("dict")
+        rects = []
+        for block in d.get("blocks", []):
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    if span.get("color") == target_int:
+                        rects.append(fitz.Rect(span["bbox"]))
+        for r in rects:
+            page.add_redact_annot(r, fill=(1, 1, 1))
+        if rects:
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+            count += len(rects)
+else:
+    target = ${JSON.stringify(text || query || "")}
+    for pno in range(len(doc)):
+        page = doc[pno]
+        rects = page.search_for(target)
+        for r in rects:
+            page.add_redact_annot(r, fill=(1, 1, 1))
+        if rects:
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+            count += len(rects)
+doc.save(${JSON.stringify(dst)})
+print(f"已删除 {count} 处（模式={mode}）")
+`;
+    } else if (operation === "replace") {
+      const c = (color || "000000").toUpperCase();
+      script = `import fitz
+doc = fitz.open(${JSON.stringify(src)})
+find_text = ${JSON.stringify(query || anchor || "")}
+new_text = ${JSON.stringify(replaceWith || text || "")}
+color_hex = ${JSON.stringify(c)}
+cr = int(color_hex[0:2], 16) / 255
+cg = int(color_hex[2:4], 16) / 255
+cb = int(color_hex[4:6], 16) / 255
+fn = "helv" if all(ord(c) < 128 for c in new_text) else "china-s"
+count = 0
+for pno in range(len(doc)):
+    page = doc[pno]
+    rects = page.search_for(find_text)
+    for r in rects:
+        page.add_redact_annot(r, fill=(1, 1, 1))
+    if rects:
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        for r in rects:
+            point = fitz.Point(r.x0, r.y1 - 2)
+            page.insert_text(point, new_text, fontname=fn, fontsize=11, color=(cr, cg, cb))
+            count += 1
+doc.save(${JSON.stringify(dst)})
+print(f"已替换 {count} 处")
+`;
+    } else {
+      return `未知操作: ${operation}`;
+    }
+
+    const scriptPath = path.join(os.tmpdir(), `diri-edit-pdf-${Date.now()}.py`);
+    await fs.promises.writeFile(scriptPath, script, "utf-8");
+    try {
+      const { stdout, stderr } = await execAsync(`python3 "${scriptPath}"`, { timeout: 60000, env: { ...process.env, PATH: `/opt/homebrew/bin:${process.env.PATH || ""}` } });
+      const output = stdout.trim() + (stderr.trim() ? `\nstderr: ${stderr.trim()}` : "");
+      log(`editPdf: ${output}`);
+      if (operation === "find") return output;
+      return `已编辑 PDF，保存至「${path.basename(dst)}」（${output}）`;
+    } finally {
+      await fs.promises.unlink(scriptPath).catch(() => {});
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return `PDF 编辑失败: ${msg}`;
+  }
+}
+
+function toSeconds(t: string): number {
+  const parts = t.split(":").map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
 export async function executeTool(name: string, argsJson: string): Promise<string> {
   try {
     const args = JSON.parse(argsJson || "{}") as Record<string, unknown>;
@@ -724,6 +1381,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       case "web_search": {
         const { webSearch } = await import("./search");
         return await webSearch(String(args.query));
+      }
+      case "scrape_url": {
+        const { scrapeUrl } = await import("./search");
+        return await scrapeUrl(String(args.url));
       }
       case "search_wallpapers": {
         const { searchWallpapers } = await import("./search");
@@ -745,6 +1406,10 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
         return await getFrontmostApplication();
       case "read_selected_text":
         return await readSelectedText();
+      case "get_clipboard_text":
+        return await getClipboardText();
+      case "write_clipboard_text":
+        return await writeClipboardText(String(args.text));
       case "get_current_time":
         return await getCurrentTime();
       case "weather_forecast": {
@@ -788,9 +1453,6 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       }
       case "set_alarm":
         return await setAlarm(String(args.time), args.label ? String(args.label) : undefined);
-      case "set_alarm": {
-        return await setAlarm(String(args.time), args.label ? String(args.label) : undefined);
-      }
       case "search_maps":
         return await searchMaps(String(args.query));
       case "sports_schedule": {
@@ -799,6 +1461,51 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       }
       case "open_url":
         return await openUrl(String(args.url));
+      case "switch_audio_output":
+        return await switchAudioOutput(String(args.device));
+      case "trim_video":
+        return await trimVideo(String(args.source), String(args.start), String(args.end), args.output ? String(args.output) : undefined);
+      case "convert_video":
+        return await convertVideo(String(args.source), String(args.format), args.output ? String(args.output) : undefined);
+      case "convert_document":
+        return await convertDocument(String(args.source), String(args.target));
+      case "edit_document":
+        return await editDocument(
+          String(args.source), String(args.target), String(args.operation ?? "remove_colored_text"),
+          args.color ? String(args.color) : undefined,
+          args.page_start != null ? Number(args.page_start) : undefined,
+          args.page_end != null ? Number(args.page_end) : undefined,
+          args.code ? String(args.code) : undefined
+        );
+      case "edit_pdf":
+        return await editPdf(
+          String(args.source), String(args.target), String(args.operation ?? "find"),
+          args.query ? String(args.query) : undefined,
+          args.anchor ? String(args.anchor) : undefined,
+          args.text ? String(args.text) : undefined,
+          args.color ? String(args.color) : undefined,
+          args.fontsize != null ? Number(args.fontsize) : undefined,
+          args.mode ? String(args.mode) : undefined,
+          args.replace_with ? String(args.replace_with) : undefined
+        );
+      case "send_email":
+        return await sendEmail(
+          String(args.to),
+          String(args.subject ?? "无主题"),
+          String(args.body ?? "")
+        );
+      case "read_unread_emails": {
+        const l = parseInt(String(args.limit ?? "5"), 10);
+        return await readUnreadEmails(isNaN(l) ? 5 : l);
+      }
+      case "get_recent_emails": {
+        const l = parseInt(String(args.limit ?? "5"), 10);
+        return await getRecentEmails(isNaN(l) ? 5 : l);
+      }
+      case "search_emails": {
+        const l = parseInt(String(args.limit ?? "5"), 10);
+        return await searchEmails(String(args.query), isNaN(l) ? 5 : l);
+      }
       default:
         return `未知工具: ${name}`;
     }

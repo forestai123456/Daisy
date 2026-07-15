@@ -2,6 +2,7 @@ export const IPC_CHANNELS = {
   // Audio recorder -> main
   AUDIO_DATA: "audio:data",
   AUDIO_ERROR: "audio:error",
+  AUDIO_WAKE_WORD_ENABLED: "audio:wake-word-enabled",
 
   // Main -> renderer
   ASR_PARTIAL: "asr:partial",
@@ -14,10 +15,12 @@ export const IPC_CHANNELS = {
   TTS_PLAY: "tts:play",
   TTS_END: "tts:end",
   TTS_PLAY_ENDED: "tts:play-ended",
+  TTS_MUTE_CURRENT: "tts:mute-current",
   STATE_UPDATE: "state:update",
   SHOW_WINDOW: "window:show",
   HIDE_WINDOW: "window:hide",
   RENDERER_ERROR: "renderer:error",
+  RENDERER_LOG: "renderer:log",
 
   // Renderer -> main
   START_RECORDING: "recording:start",

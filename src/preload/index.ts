@@ -16,10 +16,14 @@ export interface DiriAPI {
   sendAudioData: (base64: string) => void;
   sendAudioError: (message: string) => void;
   sendRendererError: (message: string) => void;
+  sendRendererLog: (message: string) => void;
   sendTtsPlayEnded: () => void;
+  muteCurrentTts: () => void;
+  sendAudioReady: () => void;
+  sendAudioStopped: () => void;
 
   // Whisper model management
-  getWhisperStatus: () => Promise<{ cliInstalled: boolean; modelExists: boolean; modelPath: string; modelName: string }>;
+  getWhisperStatus: (modelName?: string) => Promise<{ cliInstalled: boolean; modelExists: boolean; modelPath: string; modelName: string }>;
   downloadWhisperModel: (modelName: string) => void;
   onWhisperDownloadProgress: (callback: (progress: { percent: number; status: string }) => void) => () => void;
 
@@ -66,6 +70,11 @@ export interface DiriAPI {
   onHideWindow: (callback: () => void) => () => void;
   onStartRecording: (callback: () => void) => () => void;
   onStopRecording: (callback: () => void) => () => void;
+  onWakeWordEnabled: (callback: (enabled: boolean) => void) => () => void;
+  // Float window interaction plumbing. These are UI transport helpers only;
+  // they do not enable any paid-only feature.
+  onSetDocked: (callback: (docked: boolean) => void) => () => void;
+  setIgnoreMouse: (ignore: boolean) => void;
 }
 
 function createListener<T>(channel: string) {
@@ -91,9 +100,13 @@ const api: DiriAPI = {
   sendAudioData: (base64: string) => ipcRenderer.send(IPC_CHANNELS.AUDIO_DATA, base64),
   sendAudioError: (message: string) => ipcRenderer.send(IPC_CHANNELS.AUDIO_ERROR, message),
   sendRendererError: (message: string) => ipcRenderer.send(IPC_CHANNELS.RENDERER_ERROR, message),
+  sendRendererLog: (message: string) => ipcRenderer.send(IPC_CHANNELS.RENDERER_LOG, message),
   sendTtsPlayEnded: () => ipcRenderer.send(IPC_CHANNELS.TTS_PLAY_ENDED),
+  muteCurrentTts: () => ipcRenderer.send(IPC_CHANNELS.TTS_MUTE_CURRENT),
+  sendAudioReady: () => ipcRenderer.send("audio:ready"),
+  sendAudioStopped: () => ipcRenderer.send("audio:stopped"),
 
-  getWhisperStatus: () => ipcRenderer.invoke(IPC_CHANNELS.WHISPER_STATUS),
+  getWhisperStatus: (modelName?: string) => ipcRenderer.invoke(IPC_CHANNELS.WHISPER_STATUS, modelName),
   downloadWhisperModel: (modelName: string) => ipcRenderer.send(IPC_CHANNELS.WHISPER_DOWNLOAD, modelName),
   onWhisperDownloadProgress: createListener<{ percent: number; status: string }>(IPC_CHANNELS.WHISPER_DOWNLOAD_PROGRESS),
 
@@ -127,6 +140,19 @@ const api: DiriAPI = {
   onHideWindow: createListener(IPC_CHANNELS.HIDE_WINDOW),
   onStartRecording: createListener(IPC_CHANNELS.START_RECORDING),
   onStopRecording: createListener(IPC_CHANNELS.STOP_RECORDING),
+  onWakeWordEnabled: createListener<boolean>(IPC_CHANNELS.AUDIO_WAKE_WORD_ENABLED),
+  onSetDocked: createListener<boolean>("set-docked"),
+  setIgnoreMouse: (ignore: boolean) => ipcRenderer.send("window:set-ignore-mouse", ignore),
 };
 
 contextBridge.exposeInMainWorld("diriAPI", api);
+
+// Right-click context menu: ask main process to show native menu,
+// because Menu / MenuItem are main-process-only in Electron.
+window.addEventListener("contextmenu", (e: MouseEvent) => {
+  e.preventDefault();
+  const target = e.target as HTMLElement;
+  const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+  const selection = window.getSelection()?.toString() || "";
+  ipcRenderer.send("context-menu:show", { isInput, selection });
+});

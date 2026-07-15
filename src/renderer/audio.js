@@ -6,12 +6,18 @@ let audioContext = null;
 let mediaStream = null;
 let source = null;
 let processor = null;
+let gainNode = null;
 let isRecording = false;
 let micReady = false;
-let pendingStart = false;
+let micInitPromise = null;
+let resumeInterval = null;
+let desiredRecording = false;
+let operationGeneration = 0;
+let wakeWordEnabled = false;
+let shuttingDown = false;
 
 function logToMain(msg) {
-  diriAPI.sendRendererError("AUDIO_LOG: " + msg);
+  diriAPI.sendRendererLog("AUDIO_LOG: " + msg);
 }
 
 function downsampleBuffer(inputBuffer, inputSampleRate) {
@@ -64,12 +70,63 @@ function uint8ToBase64(bytes) {
 
 let audioLogCounter = 0;
 
-async function initMic() {
-  if (micReady) return;
+function releaseMic(reason) {
+  const hadResources = Boolean(mediaStream || audioContext || source || processor || gainNode);
+  if (hadResources) {
+    logToMain("releaseMic: " + reason);
+  }
 
-  try {
-    logToMain("initMic: requesting getUserMedia");
-    mediaStream = await navigator.mediaDevices.getUserMedia({
+  if (resumeInterval) {
+    clearInterval(resumeInterval);
+    resumeInterval = null;
+  }
+
+  if (processor) {
+    processor.onaudioprocess = null;
+    try { processor.disconnect(); } catch (_error) {}
+  }
+  if (source) {
+    try { source.disconnect(); } catch (_error) {}
+  }
+  if (gainNode) {
+    try { gainNode.disconnect(); } catch (_error) {}
+  }
+  if (mediaStream) {
+    try {
+      mediaStream.getTracks().forEach((track) => track.stop());
+    } catch (_error) {}
+  }
+
+  const contextToClose = audioContext;
+  audioContext = null;
+  mediaStream = null;
+  source = null;
+  processor = null;
+  gainNode = null;
+  micReady = false;
+  isRecording = false;
+
+  if (contextToClose && contextToClose.state !== "closed") {
+    contextToClose.close().catch((error) => {
+      logToMain("releaseMic: failed to close AudioContext: " + error.message);
+    });
+  }
+}
+
+async function ensureMic() {
+  if (micReady && audioContext && mediaStream) return true;
+  if (micInitPromise) return micInitPromise;
+
+  const initPromise = (async () => {
+    let newStream = null;
+    let newContext = null;
+    let newSource = null;
+    let newProcessor = null;
+    let newGain = null;
+
+    try {
+      logToMain("ensureMic: requesting getUserMedia");
+      newStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         sampleRate: 48000,
         channelCount: 1,
@@ -79,88 +136,157 @@ async function initMic() {
       },
     });
 
-    audioContext = new AudioContext({ sampleRate: 48000 });
-    source = audioContext.createMediaStreamSource(mediaStream);
+      newContext = new AudioContext({ sampleRate: 48000 });
+      newSource = newContext.createMediaStreamSource(newStream);
 
-    const bufferSize = 4096;
-    processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      const bufferSize = 4096;
+      newProcessor = newContext.createScriptProcessor(bufferSize, 1, 1);
+      newGain = newContext.createGain();
+      newGain.gain.value = 0.0001;
 
-    processor.onaudioprocess = (event) => {
-      // Always send audio data — main process routes to ASR and/or wake word monitor
-      const inputData = event.inputBuffer.getChannelData(0);
+      // Capture the context locally so a later cleanup cannot make this
+      // callback dereference a different generation's global AudioContext.
+      const inputSampleRate = newContext.sampleRate;
+      newProcessor.onaudioprocess = (event) => {
+        if (!isRecording && !wakeWordEnabled) return;
+        const inputData = event.inputBuffer.getChannelData(0);
 
-      // Log audio level every 100 frames
-      audioLogCounter++;
-      if (audioLogCounter % 100 === 0) {
-        let max = 0;
-        for (let i = 0; i < inputData.length; i++) {
-          const abs = Math.abs(inputData[i]);
-          if (abs > max) max = abs;
+        audioLogCounter++;
+        if (audioLogCounter % 100 === 0) {
+          let max = 0;
+          for (let i = 0; i < inputData.length; i++) {
+            const abs = Math.abs(inputData[i]);
+            if (abs > max) max = abs;
+          }
+          logToMain("audio flowing: " + audioLogCounter + " frames, maxLevel=" + max.toFixed(4));
         }
-        logToMain("audio flowing: " + audioLogCounter + " frames, maxLevel=" + max.toFixed(4));
+
+        const downsampled = downsampleBuffer(inputData, inputSampleRate);
+        const pcm = floatTo16BitPCM(downsampled);
+        diriAPI.sendAudioData(uint8ToBase64(pcm));
+      };
+
+      newSource.connect(newProcessor);
+      newProcessor.connect(newGain);
+      newGain.connect(newContext.destination);
+
+      mediaStream = newStream;
+      audioContext = newContext;
+      source = newSource;
+      processor = newProcessor;
+      gainNode = newGain;
+      micReady = true;
+      logToMain("ensureMic: mic acquired and pipeline ready");
+
+      if (newContext.state === "suspended") {
+        await newContext.resume();
+        logToMain("ensureMic: resumed suspended AudioContext");
       }
 
-      const downsampled = downsampleBuffer(inputData, audioContext.sampleRate);
-      const pcm = floatTo16BitPCM(downsampled);
-      diriAPI.sendAudioData(uint8ToBase64(pcm));
-    };
+      if (resumeInterval) clearInterval(resumeInterval);
+      resumeInterval = setInterval(() => {
+        if (audioContext && audioContext.state === "suspended") {
+          audioContext.resume().catch(() => {});
+          logToMain("ensureMic: resumed suspended AudioContext (periodic check)");
+        }
+      }, 5000);
 
-    // Connect: source -> processor -> destination (with near-zero gain to keep silent)
-    // processor MUST connect to destination for onaudioprocess to fire
-    const gain = audioContext.createGain();
-    gain.gain.value = 0.0001; // near-zero, not exactly 0 to avoid engine optimization
-    source.connect(processor);
-    processor.connect(gain);
-    gain.connect(audioContext.destination);
-
-    micReady = true;
-    logToMain("initMic: mic acquired and pipeline ready");
-
-    // Ensure AudioContext stays running (it can be suspended in background)
-    if (audioContext.state === "suspended") {
-      audioContext.resume();
-      logToMain("initMic: resumed suspended AudioContext");
-    }
-
-    if (pendingStart) {
-      pendingStart = false;
-      isRecording = true;
-      logToMain("initMic: executing pending start");
-    }
-
-    // Periodically check if AudioContext is still running
-    setInterval(() => {
-      if (audioContext && audioContext.state === "suspended") {
-        audioContext.resume();
-        logToMain("initMic: resumed suspended AudioContext (periodic check)");
+      if (shuttingDown || (!desiredRecording && !wakeWordEnabled)) {
+        releaseMic(shuttingDown ? "window shutting down" : "pending start was cancelled");
+        return false;
       }
-    }, 5000);
+
+      return true;
+    } catch (error) {
+      if (newProcessor) {
+        newProcessor.onaudioprocess = null;
+        try { newProcessor.disconnect(); } catch (_disconnectError) {}
+      }
+      if (newSource) {
+        try { newSource.disconnect(); } catch (_disconnectError) {}
+      }
+      if (newGain) {
+        try { newGain.disconnect(); } catch (_disconnectError) {}
+      }
+      if (newStream) {
+        try { newStream.getTracks().forEach((track) => track.stop()); } catch (_stopError) {}
+      }
+      if (newContext && newContext.state !== "closed") {
+        newContext.close().catch(() => {});
+      }
+      throw error;
+    }
+  })();
+
+  micInitPromise = initPromise;
+  try {
+    return await initPromise;
+  } finally {
+    if (micInitPromise === initPromise) {
+      micInitPromise = null;
+    }
+  }
+}
+
+async function setWakeWordEnabled(enabled) {
+  wakeWordEnabled = enabled;
+  logToMain("setWakeWordEnabled: enabled=" + enabled + " isRecording=" + isRecording);
+
+  if (!enabled) {
+    if (!desiredRecording && !isRecording) {
+      releaseMic("wake-word monitoring disabled");
+    }
+    return;
+  }
+
+  if (!shuttingDown) {
+    try {
+      await ensureMic();
+    } catch (error) {
+      logToMain("setWakeWordEnabled: wake-word mic start failed: " + error.message);
+      diriAPI.sendAudioError("无法访问麦克风：" + error.message);
+    }
+  }
+}
+
+async function startRecording() {
+  const myGeneration = ++operationGeneration;
+  desiredRecording = true;
+  logToMain("startRecording: generation=" + myGeneration + " isRecording=" + isRecording + " micReady=" + micReady);
+
+  try {
+    const ready = await ensureMic();
+    if (myGeneration !== operationGeneration || !desiredRecording || shuttingDown) return;
+    if (!ready || !micReady) {
+      throw new Error("麦克风初始化已取消");
+    }
+
+    isRecording = true;
+    logToMain("startRecording: ready generation=" + myGeneration);
+    diriAPI.sendAudioReady();
   } catch (error) {
-    logToMain("initMic FAILED: " + error.message);
+    if (myGeneration !== operationGeneration || !desiredRecording || shuttingDown) return;
+    desiredRecording = false;
+    isRecording = false;
+    releaseMic("recording start failed");
+    logToMain("startRecording FAILED: " + error.message);
     diriAPI.sendAudioError("无法访问麦克风：" + error.message);
   }
 }
 
-function startRecording() {
-  logToMain("startRecording: isRecording=" + isRecording + " micReady=" + micReady);
-  if (isRecording) {
-    logToMain("startRecording: already recording, ignoring");
-    return;
-  }
-
-  if (!micReady) {
-    pendingStart = true;
-    initMic();
-    return;
-  }
-
-  isRecording = true;
-  logToMain("startRecording: started");
-}
-
 function stopRecording() {
-  logToMain("stopRecording: isRecording=" + isRecording);
+  const myGeneration = ++operationGeneration;
+  logToMain("stopRecording: generation=" + myGeneration + " isRecording=" + isRecording + " micReady=" + micReady);
+  desiredRecording = false;
   isRecording = false;
+
+  if (!wakeWordEnabled) {
+    releaseMic("recording stopped");
+  }
+
+  // Always acknowledge STOP, including cancellation during getUserMedia.
+  // The in-flight initializer checks desiredRecording before publishing READY.
+  diriAPI.sendAudioStopped();
 }
 
 diriAPI.onStartRecording(() => {
@@ -171,6 +297,10 @@ diriAPI.onStopRecording(() => {
   stopRecording();
 });
 
+diriAPI.onWakeWordEnabled((enabled) => {
+  setWakeWordEnabled(Boolean(enabled));
+});
+
 window.onerror = (message, source, lineno, colno, error) => {
   diriAPI.sendRendererError(`audio.js error: ${message} at ${source}:${lineno}:${colno} ${error?.stack || ""}`);
 };
@@ -179,4 +309,9 @@ window.onunhandledrejection = (event) => {
   diriAPI.sendRendererError(`audio.js unhandled rejection: ${event.reason}`);
 };
 
-initMic();
+window.addEventListener("beforeunload", () => {
+  shuttingDown = true;
+  operationGeneration++;
+  desiredRecording = false;
+  releaseMic("window unloading");
+});

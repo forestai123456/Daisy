@@ -1,5 +1,5 @@
 import path from "node:path";
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import { log, logError } from "../utils/logger";
 
 let settingsWindow: BrowserWindow | null = null;
@@ -34,6 +34,12 @@ export function createSettingsWindow(): BrowserWindow {
   });
 
   settingsWindow.loadFile(path.join(__dirname, "../../renderer-settings/settings.html"));
+
+  // Intercept target="_blank" links → open in system default browser instead of Electron popup
+  settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
 
   // 把渲染进程的 console 转发到主进程日志，方便定位问题
   settingsWindow.webContents.on("console-message", (_event, level, message, line, source) => {

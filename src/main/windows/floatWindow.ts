@@ -3,7 +3,7 @@ import { BrowserWindow, screen } from "electron";
 import { IPC_CHANNELS } from "../ipc/channels";
 import { log } from "../utils/logger";
 
-const ORB_SIZE = 120;
+const ORB_SIZE = 92;
 
 let floatWindow: BrowserWindow | null = null;
 
@@ -14,9 +14,9 @@ export function createFloatWindow(): BrowserWindow {
     return floatWindow;
   }
 
-  const { x: workX, y: workY, width: workWidth } = screen.getPrimaryDisplay().workArea;
-  const x = workX + Math.round((workWidth - ORB_SIZE) / 2);
-  const y = workY + 20;
+  const { x: screenX, y: screenY, width: screenWidth } = screen.getPrimaryDisplay().bounds;
+  const x = screenX + Math.round((screenWidth - ORB_SIZE) / 2);
+  const y = screenY - 20;
 
   floatWindow = new BrowserWindow({
     width: ORB_SIZE,
@@ -42,8 +42,12 @@ export function createFloatWindow(): BrowserWindow {
   });
 
   floatWindow.loadFile(path.join(__dirname, "../../renderer/float.html"));
+  // Do not use Electron's system-wide content protection here. It also hides
+  // the orb from third-party screen recorders such as Screen Studio. Daisy's
+  // own full-screen capture path hides the orb only for that single frame.
   floatWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   floatWindow.setAlwaysOnTop(true, "screen-saver");
+  floatWindow.setIgnoreMouseEvents(true);
 
   floatWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error("Float window render process gone:", details);
@@ -78,9 +82,9 @@ export function showFloatWindow(): void {
 
   // 2. Reposition it only if display boundary changed, to avoid blocking display server queries
   try {
-    const { x: workX, y: workY, width: workWidth } = screen.getPrimaryDisplay().workArea;
-    const x = workX + Math.round((workWidth - ORB_SIZE) / 2);
-    const y = workY + 20;
+    const { x: screenX, y: screenY, width: screenWidth } = screen.getPrimaryDisplay().bounds;
+    const x = screenX + Math.round((screenWidth - ORB_SIZE) / 2);
+    const y = screenY - 20;
     const currentPos = floatWindow.getPosition();
     if (currentPos[0] !== x || currentPos[1] !== y) {
       floatWindow.setPosition(x, y);

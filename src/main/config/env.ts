@@ -69,6 +69,8 @@ export const config = {
     apiKey: process.env.DEEPSEEK_API_KEY || process.env.AI_TRANSLATION_API_KEY || "",
     baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
     model: process.env.DEEPSEEK_MODEL || process.env.AI_TRANSLATION_MODEL || "deepseek-v4-flash",
+    thinkingEnabled: process.env.DEEPSEEK_THINKING_ENABLED !== "false",
+    reasoningEffort: process.env.DEEPSEEK_REASONING_EFFORT || "high",
   },
   tts: {
     voice: process.env.EDGE_TTS_VOICE || "zh-CN-XiaoxiaoNeural",
@@ -86,7 +88,7 @@ export const config = {
     keyword: process.env.WAKE_WORD || "嘿 Daisy",
   },
   firecrawl: {
-    apiKey: process.env.FIRECRAWL_API_KEY || "fc-22220cee179d4e55ae7635f0fbb0e2c1",
+    apiKey: process.env.FIRECRAWL_API_KEY || "",
   },
   autoLaunch: process.env.AUTO_LAUNCH === "true",
 };
@@ -109,16 +111,27 @@ export const WHISPER_MODELS: Record<string, { label: string; size: string; url: 
   },
 };
 
-export function getWhisperModelPath(): string {
-  // 优先用内置模型
-  const bundled = path.join(app?.getAppPath?.() || "", "assets", "models", config.whisper.model);
-  if (fs.existsSync(bundled)) return bundled;
-  return path.join(os.homedir(), "Models", "whisper", config.whisper.model);
+export function getWhisperModelPath(modelName?: string): string {
+  const name = modelName || config.whisper.model;
+  const appPath = app?.getAppPath?.() || "";
+  const bundled = path.join(appPath, "assets", "models", name);
+  if (fs.existsSync(bundled)) {
+    // Resolve asar path to real filesystem path for external binaries (whisper-cli)
+    if (appPath.includes(".asar")) {
+      const unpacked = bundled.replace(".asar", ".asar.unpacked");
+      if (fs.existsSync(unpacked)) return unpacked;
+    }
+    return bundled;
+  }
+  return path.join(os.homedir(), "Models", "whisper", name);
 }
 
 export function getBundledBin(name: string): string {
+  const appPath = app?.getAppPath?.() || "";
+  const bundled = path.join(appPath, "assets", "bin", name);
   const candidates = [
-    path.join(app?.getAppPath?.() || "", "assets", "bin", name),
+    ...(appPath.includes(".asar") ? [bundled.replace(".asar", ".asar.unpacked")] : []),
+    bundled,
     "/opt/homebrew/bin/" + name,
   ];
   for (const p of candidates) {

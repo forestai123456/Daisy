@@ -4,16 +4,16 @@ import os from "node:os";
 import https from "node:https";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { app, ipcMain } from "electron";
+import { app, ipcMain, Menu, BrowserWindow } from "electron";
 import { autoUpdater } from "electron-updater";
 import { config, isAsrConfigured, isLlmConfigured, getWhisperModelPath, getBundledBin, WHISPER_MODELS, getWritableEnvPath } from "./config/env";
 import { IPC_CHANNELS } from "./ipc/channels";
 import { createFloatWindow, getFloatWindow, sendToFloatWindow, showFloatWindow, hideFloatWindow } from "./windows/floatWindow";
 import { createSettingsWindow, getSettingsWindow } from "./windows/settingsWindow";
-import { initAudioRecorder, startRecording, stopRecording, getIsRecording } from "./audio/recorder";
+import { initAudioRecorder, startRecording, stopRecording, getIsRecording, setWakeWordCaptureEnabled } from "./audio/recorder";
 import { AsrSession } from "./asr";
 import { WhisperAsrSession } from "./asr/whisper";
-import { DeepSeekClient } from "./llm/deepseek";
+import { DeepSeekClient, DualChannel } from "./llm/deepseek";
 import { ConversationManager } from "./llm/conversation";
 import { EdgeTTSPlayer, startTTSCleanup, stopTTSCleanup } from "./tts/edgeTTS";
 import { GlobalShortcut } from "./shortcut/globalShortcut";
@@ -21,9 +21,17 @@ import { WakeWordMonitor, VAD } from "./wakeword/monitor";
 import { tryLocalCommand, initCommandRouter } from "./command/router";
 import { log, logError } from "./utils/logger";
 
+{
+  const pathParts = (process.env.PATH || "").split(":").filter(Boolean);
+  for (const p of ["/opt/homebrew/bin", "/usr/local/bin"]) {
+    if (!pathParts.includes(p)) pathParts.unshift(p);
+  }
+  process.env.PATH = pathParts.join(":");
+}
+
 const execAsync = promisify(exec);
 
-const AUTO_HIDE_TIMEOUT_MS = 3_000;
+const AUTO_HIDE_TIMEOUT_MS = 500;
 const CONVERSATION_EXPIRE_MS = 5 * 60 * 1000; // 5 minutes
 
 function playSound(name: string): void {
@@ -52,6 +60,7 @@ let pendingFinalResponse: string | null = null;
 let wakeWordMonitor: WakeWordMonitor | null = null;
 let currentSessionId = 0;  // increments on each new session, used to detect stale async callbacks
 let isScreenLocked = false;
+let activeMutePromise: Promise<void> | null = null;
 
 app.whenReady().then(() => {
   log("App ready");
@@ -149,6 +158,7 @@ function setupPowerMonitor(): void {
 function setupWakeWord(): void {
   if (!config.wakeWord.enabled) {
     log("Wake word detection disabled");
+    setWakeWordCaptureEnabled(false);
     return;
   }
   const whisperBin = getBundledBin("whisper-cli");
@@ -161,6 +171,7 @@ function setupWakeWord(): void {
   }
   if (!whisperAvailable) {
     log("Wake word disabled: whisper-cli not found (not bundled and not on PATH)");
+    setWakeWordCaptureEnabled(false);
     return;
   }
   log(`Wake word detection enabled, keyword: ${config.wakeWord.keyword}`);
@@ -189,6 +200,7 @@ function setupWakeWord(): void {
   });
 
   wakeWordMonitor.start();
+  setWakeWordCaptureEnabled(true);
 }
 
 function setupAudio(): void {
@@ -295,6 +307,36 @@ function stopSpeaking(): void {
   sendToFloatWindow(IPC_CHANNELS.TTS_END);
 }
 
+function muteCurrentAnswerSpeech(): void {
+  if (!isSpeaking || toolAckPending) {
+    log("TTS mute request ignored — no final answer is currently being spoken");
+    return;
+  }
+
+  log("TTS muted by orb click; retaining current answer state");
+
+  try {
+    ttsPlayer?.stop();
+  } catch {
+  }
+  ttsPlayer = null;
+  isSpeaking = false;
+  activeTtsSynthesisSessionId = null;
+  playingTtsSessionId = null;
+
+  for (const filePath of ttsFileQueue) {
+    fs.promises.unlink(filePath).catch(() => {});
+  }
+  ttsFileQueue = [];
+
+  if (currentPlayingFile) {
+    fs.promises.unlink(currentPlayingFile).catch(() => {});
+    currentPlayingFile = null;
+  }
+
+  sendToFloatWindow(IPC_CHANNELS.TTS_END);
+}
+
 function abortAllTasks(): void {
   // Increment session ID — all async callbacks from old session become stale
   currentSessionId++;
@@ -371,10 +413,10 @@ function wakeAndStartListening(): void {
     return;
   }
 
-  muteSystemAndPauseMedia();
-
   // Abort all ongoing tasks (LLM, TTS, ASR, timers) and start fresh
   abortAllTasks();
+
+  muteSystemAndPauseMedia();
   const sessionId = currentSessionId;
   log(`wakeAndStartListening: new session ${sessionId}, useWhisper=${useWhisper}`);
   isSessionActive = true;
@@ -744,18 +786,21 @@ function handleLLMRequest(text: string): void {
     stopSpeaking();
     updateState("idle");
     startAutoHideTimer();
-    // Clear conversation history after a successful stateless silent action to avoid context pollution
     conversationManager?.reset();
   });
 
-  llmClient.on("done", (speechText: string) => {
+  llmClient.on("done", ({ display: displayText, speech: speechText }: DualChannel) => {
     if (sessionId !== currentSessionId) return;
-    log(`LLM done, speech length: ${speechText.length}`);
-    conversation.addAssistantMessage(speechText);
-    addChatEntry("daisy", speechText);
+    log(`LLM done, display length: ${displayText.length}, speech length: ${speechText.length}`);
+    if (llmClient) {
+      conversation.setMessages(llmClient.getConversation());
+    } else {
+      conversation.addAssistantMessage(displayText);
+    }
+    addChatEntry("daisy", displayText);
     toolAckPending = false;
 
-    if (!speechText.trim()) {
+    if (!displayText.trim()) {
       isSessionActive = false;
       updateState("idle");
       startAutoHideTimer();
@@ -772,8 +817,9 @@ function handleLLMRequest(text: string): void {
       return;
     }
 
+    updateState("speaking", undefined, { isFinal: true, text: displayText });
+
     if (!isSpeaking) {
-      updateState("speaking");
       speakResponse(chunks[0]);
       if (chunks.length > 1) {
         synthesizeRemaining(chunks.slice(1), sessionId);
@@ -884,7 +930,7 @@ function stripMarkdownForTTS(text: string): string {
     .replace(/^\d+\.\s+/gm, "")
     .replace(/^\s*>\s?/gm, "")
     .replace(/[*#_~|]/g, "")
-    .replace(/[\u{1F300}-\u{1F9FF}]/gu, "")
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{2702}\u{2705}\u{2708}-\u{270F}\u{2764}\u{2763}\u{00A9}\u{00AE}\u{2122}\u{200D}\u{FE0F}]/gu, "")
     .replace(/℃/g, "度")
     .replace(/°C/g, "度")
     .replace(/°/g, "度")
@@ -1006,11 +1052,12 @@ function startAutoHideTimer(): void {
     log("Auto-hiding orb after inactivity");
     hideOrb();
   }, AUTO_HIDE_TIMEOUT_MS);
+  // 进入闲置立即恢复播放(不等悬浮球消失)
+  unmuteSystemOnly();
+  restoreMediaOnly();
   // Resume wake word monitoring when going idle
   if (wakeWordMonitor && !isSessionActive && !isSpeaking && !isScreenLocked) {
     wakeWordMonitor.resume();
-    unmuteSystemOnly();
-    restoreMediaOnly();
   }
 }
 
@@ -1036,64 +1083,91 @@ function runAppleScript(script: string): Promise<string> {
 }
 
 async function muteSystemAndPauseMedia(): Promise<void> {
-  log("Muting system and pausing Chrome media...");
-  
-  // 1. Pause Chrome playing tabs
-  try {
-    const script = `tell application "Google Chrome"
-    set pausedTabs to {}
-    if it is running then
-        repeat with w in windows
-            repeat with t in tabs of w
-                try
-                    set isPlaying to execute t javascript "(function() {
-                        var v = document.querySelectorAll('video, audio');
-                        var played = false;
-                        for (var i = 0; i < v.length; i++) {
-                            if (!v[i].paused && v[i].muted === false && (typeof v[i].volume !== 'number' || v[i].volume > 0)) {
-                                v[i].setAttribute('data-diri-paused', 'true');
-                                v[i].pause();
-                                played = true;
-                            }
-                        }
-                        return played;
-                    })()"
-                    if isPlaying is true then
-                        set end of pausedTabs to (id of t as string)
-                    end if
-                end try
-            end repeat
-        end repeat
-    end if
-    return pausedTabs
-end tell`;
-    
-    const stdout = await runAppleScript(script);
-    const trimmed = stdout.trim();
-    if (trimmed) {
-      const newPaused = trimmed.split(",").map(id => id.trim());
-      for (const id of newPaused) {
-        if (!pausedChromeTabs.includes(id)) {
-          pausedChromeTabs.push(id);
-        }
-      }
-      log(`VolumeControl: Paused Chrome tabs (accumulated): ${pausedChromeTabs.join(", ")}`);
-    }
-  } catch (err) {
-    logError("VolumeControl: Chrome pause failed", err);
+  if (activeMutePromise) {
+    return activeMutePromise;
   }
 
-  // 2. Mute system volume (for other browser/system sounds to ensure 100% silent recording)
-  try {
-    await execAsync("osascript -e 'set volume with output muted'");
-    isSystemMutedByApp = true;
-    log("VolumeControl: Muted system output");
-  } catch (err) {
-    logError("VolumeControl: Mute failed", err);
-  }
+  const muteAction = async () => {
+    log("Muting system and pausing Chrome media...");
+    
+    // 1. Pause Chrome playing tabs
+    try {
+      const script = `tell application "Google Chrome"
+      set pausedTabs to {}
+      if it is running then
+          repeat with w in windows
+              repeat with t in tabs of w
+                  try
+                      set isPlaying to execute t javascript "(function() {
+                          var played = false;
+                          function scan(root) {
+                              if (!root) return;
+                              var v = root.querySelectorAll('video, audio');
+                              for (var i = 0; i < v.length; i++) {
+                                  if (!v[i].paused && v[i].muted === false && (typeof v[i].volume !== 'number' || v[i].volume > 0)) {
+                                      v[i].setAttribute('data-diri-paused', 'true');
+                                      v[i].pause();
+                                      played = true;
+                                  }
+                              }
+                              root.querySelectorAll('*').forEach(function(el) {
+                                  if (el.shadowRoot) scan(el.shadowRoot);
+                              });
+                              root.querySelectorAll('iframe').forEach(function(f) {
+                                  try { if (f.contentDocument) scan(f.contentDocument); } catch(e) {}
+                              });
+                          }
+                          scan(document);
+                          return played;
+                      })()"
+                      if isPlaying is true then
+                          set end of pausedTabs to (id of t as string)
+                      end if
+                  end try
+              end repeat
+          end repeat
+      end if
+      return pausedTabs
+  end tell`;
+
+      const stdout = await runAppleScript(script);
+      const trimmed = stdout.trim();
+      if (trimmed) {
+        const newPaused = trimmed.split(",").map(id => id.trim());
+        for (const id of newPaused) {
+          if (!pausedChromeTabs.includes(id)) {
+            pausedChromeTabs.push(id);
+          }
+        }
+        log(`VolumeControl: Paused Chrome tabs (accumulated): ${pausedChromeTabs.join(", ")}`);
+      }
+    } catch (err) {
+      logError("VolumeControl: Chrome pause failed", err);
+    }
+
+    // 2. Mute system volume (for other browser/system sounds to ensure 100% silent recording)
+    try {
+      await execAsync("osascript -e 'set volume with output muted'");
+      isSystemMutedByApp = true;
+      log("VolumeControl: Muted system output");
+    } catch (err) {
+      logError("VolumeControl: Mute failed", err);
+    }
+  };
+
+  activeMutePromise = muteAction().finally(() => {
+    activeMutePromise = null;
+  });
+
+  return activeMutePromise;
 }
 
 async function unmuteSystemOnly(): Promise<void> {
+  if (activeMutePromise) {
+    log("unmuteSystemOnly: waiting for active mute operation to complete first...");
+    await activeMutePromise;
+  }
+
   if (isSystemMutedByApp) {
     try {
       await execAsync("osascript -e 'set volume without output muted'");
@@ -1106,6 +1180,11 @@ async function unmuteSystemOnly(): Promise<void> {
 }
 
 async function restoreMediaOnly(): Promise<void> {
+  if (activeMutePromise) {
+    log("restoreMediaOnly: waiting for active mute operation to complete first...");
+    await activeMutePromise;
+  }
+
   if (pausedChromeTabs.length > 0) {
     try {
       const idsString = pausedChromeTabs.map(id => `"${id}"`).join(", ");
@@ -1116,19 +1195,40 @@ async function restoreMediaOnly(): Promise<void> {
                 if (id of t as string) is in {${idsString}} then
                     try
                         execute t javascript "(function() {
-                            var v = document.querySelectorAll('video[data-diri-paused=true], audio[data-diri-paused=true]');
-                            if (v.length > 0) {
+                            var found = false;
+                            function scan(root) {
+                                if (!root) return;
+                                var v = root.querySelectorAll('video[data-diri-paused=true], audio[data-diri-paused=true]');
                                 for (var i = 0; i < v.length; i++) {
                                     v[i].play();
                                     v[i].removeAttribute('data-diri-paused');
+                                    found = true;
                                 }
-                            } else {
-                                var all = document.querySelectorAll('video, audio');
-                                for (var i = 0; i < all.length; i++) {
-                                    if (all[i].paused && all[i].muted === false && (typeof all[i].volume !== 'number' || all[i].volume > 0)) {
-                                        all[i].play();
+                                root.querySelectorAll('*').forEach(function(el) {
+                                    if (el.shadowRoot) scan(el.shadowRoot);
+                                });
+                                root.querySelectorAll('iframe').forEach(function(f) {
+                                    try { if (f.contentDocument) scan(f.contentDocument); } catch(e) {}
+                                });
+                            }
+                            scan(document);
+                            if (!found) {
+                                function resumeFallback(root) {
+                                    if (!root) return;
+                                    var all = root.querySelectorAll('video, audio');
+                                    for (var i = 0; i < all.length; i++) {
+                                        if (all[i].paused && all[i].muted === false && (typeof all[i].volume !== 'number' || all[i].volume > 0)) {
+                                            all[i].play();
+                                        }
                                     }
+                                    root.querySelectorAll('*').forEach(function(el) {
+                                        if (el.shadowRoot) resumeFallback(el.shadowRoot);
+                                    });
+                                    root.querySelectorAll('iframe').forEach(function(f) {
+                                        try { if (f.contentDocument) resumeFallback(f.contentDocument); } catch(e) {}
+                                    });
                                 }
+                                resumeFallback(document);
                             }
                         })()"
                     end try
@@ -1146,9 +1246,9 @@ end tell`;
   }
 }
 
-function updateState(state: string, message?: string): void {
-  const payload = message ? { state, message } : { state };
-  log(`State update: ${state} ${message || ""}`.trim());
+function updateState(state: string, message?: string, metadata?: Record<string, any>): void {
+  const payload = { state, ...(message ? { message } : {}), ...(metadata || {}) };
+  log(`State update: ${state} ${message || ""} ${metadata ? JSON.stringify(metadata) : ""}`.trim());
   sendToFloatWindow(IPC_CHANNELS.STATE_UPDATE, JSON.stringify(payload));
 }
 
@@ -1166,7 +1266,7 @@ interface ChatEntry {
   timestamp: number;
 }
 
-const MAX_HISTORY = 10;
+const MAX_HISTORY = 20;
 let conversationHistory: ChatEntry[] = [];
 
 function getHistoryFilePath(): string {
@@ -1283,6 +1383,21 @@ function handleDownloadError(err: Error, modelPath: string): void {
 }
 
 function setupIpc(): void {
+  ipcMain.on("window:set-ignore-mouse", (event, ignore: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      win.setIgnoreMouseEvents(ignore, { forward: true });
+    }
+  });
+
+  ipcMain.on(IPC_CHANNELS.TTS_MUTE_CURRENT, () => {
+    muteCurrentAnswerSpeech();
+  });
+
+  ipcMain.on(IPC_CHANNELS.RENDERER_LOG, (_event, message: string) => {
+    log(`Renderer: ${message}`);
+  });
+
   ipcMain.on(IPC_CHANNELS.START_RECORDING, () => {
     wakeAndStartListening();
   });
@@ -1508,8 +1623,8 @@ function setupIpc(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.WHISPER_STATUS, async () => {
-    const modelPath = getWhisperModelPath();
+  ipcMain.handle(IPC_CHANNELS.WHISPER_STATUS, async (_event, modelName?: string) => {
+    const modelPath = getWhisperModelPath(modelName);
     let cliInstalled = false;
     try {
       await execAsync("which whisper-cli");
@@ -1524,7 +1639,7 @@ function setupIpc(): void {
       cliInstalled,
       modelExists: fs.existsSync(modelPath),
       modelPath,
-      modelName: config.whisper.model,
+      modelName: modelName || config.whisper.model,
     };
   });
 
@@ -1620,5 +1735,28 @@ function setupIpc(): void {
   ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, () => {
     log("Installing update and restarting...");
     autoUpdater.quitAndInstall(false, true);
+  });
+
+  // Right-click context menu (triggered from preload via IPC)
+  ipcMain.on("context-menu:show", (_event, { isInput, selection }: { isInput: boolean; selection: string }) => {
+    const win = BrowserWindow.fromWebContents(_event.sender);
+    if (!win) return;
+
+    const template: Electron.MenuItemConstructorOptions[] = [];
+
+    if (selection) {
+      template.push({ label: "复制", role: "copy" });
+    }
+    if (isInput) {
+      if (selection) template.push({ label: "剪切", role: "cut" });
+      template.push({ label: "粘贴", role: "paste" });
+      template.push({ label: "全选", role: "selectAll" });
+    } else if (selection) {
+      template.push({ label: "全选", role: "selectAll" });
+    }
+
+    if (template.length > 0) {
+      Menu.buildFromTemplate(template).popup({ window: win });
+    }
   });
 }
