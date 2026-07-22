@@ -5,4 +5,8 @@ releases/
 .env
 daisy.env
 *.log
+Daisy-redemption-codes-*.json
 assets/models/*.bin
+
+# Local Netlify folder
+.netlify
